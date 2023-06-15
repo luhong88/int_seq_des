@@ -162,11 +162,13 @@ class Protein(object):
                     pass
                 elif replace_missing_residues_with is not None:
                     ind_to_replace.append(ind)
+                    ind_to_keep.append(ind)
             elif (ind + 1) in self.chains_dict[chain_id].internal_missing_res_list:
                 if drop_internal_missing_res:
                     pass
                 elif replace_missing_residues_with is not None:
                     ind_to_replace.append(ind)
+                    ind_to_keep.append(ind)
             else:
                 ind_to_keep.append(ind)
 
@@ -224,7 +226,7 @@ class Protein(object):
     
     def parse_fixed_chains(self):
         if self.parsed_pdb_json['json']['num_of_chains'] > len(self.chains_list):
-            chains_to_design_str= ','.join(self.design_seq.chains_to_design)
+            chains_to_design_str= ' '.join(self.design_seq.chains_to_design)
             out= tempfile.NamedTemporaryFile()
             subprocess.run([
                 sys.executable, f'{self.helper_scripts_dir}/assign_fixed_chains.py',
@@ -279,6 +281,7 @@ class Protein(object):
             return {'json': parsed_fixed_positions, 'exec_str': 'fixed_positions_jsonl'}
     
     def parse_tied_positions(self):
+        #TODO: I think this will not work if multiple res in the same chain are tied; maybe should ban that by checking during construction?
         tied_lists= []
         for tied_residue in self.design_seq:
             tied_list= tied_list= '{' + ', '.join([f'''"{residue.chain_id}": [[{residue.resid - (self.chains_dict[residue.chain_id].init_resid - 1)}], [{residue.weight}]]''' for residue in tied_residue]) + '}'
@@ -322,12 +325,17 @@ class Protein(object):
                 with open(output_loc, 'w') as f:
                     json.dump(output['json'], f)
                     exec_str+= ['--' + output['exec_str'], output_loc]
+                #debug
+                output_loc= f'./{output["exec_str"]}.json'
+                with open(output_loc, 'w') as f:
+                    json.dump(output['json'], f)
         
         return out_dir, exec_str
 
 class DesignedProtein(Protein):
     def __init__(self, wt_protein, base_candidate, proposed_des_pos_list):
         # update chain full_seq based on candidate
+        # TODO: need to check if this actually updates the chain definitions
         new_chains_list= wt_protein.chains_list.copy()
         if base_candidate is not None:
             for chain in new_chains_list:
