@@ -139,13 +139,11 @@ class ProteinMutation(Mutation):
     #TODO: check that everytime you get a different des_ind
     #TODO: implement MPI
     def _do(self, problem, candidates, **kwargs):
-        print(candidates)
         Xp= []
         for candidate in candidates:
             chosen_method= rng.choice(self.method_list, p= [method.prob for method in self.method_list])
             proposed_candidate= chosen_method.apply(candidate, problem.protein)
             Xp.append(proposed_candidate)
-        print(Xp)
         return np.asarray(Xp)
 
 class ProteinSampling(Sampling):
