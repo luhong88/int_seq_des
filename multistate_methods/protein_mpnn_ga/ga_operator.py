@@ -10,19 +10,15 @@ rng= np.random.default_rng()
 
 class MutationMethod(object):
     #TODO: make it able to handle multiple candidates at once?
-    def __init__(self, choose_pos_method, choose_AA_method, prob, **kwargs):
+    def __init__(
+            self, choose_pos_method, choose_AA_method, prob,
+            mutation_rate, sigma= None,
+            protein_mpnn= None, protein_mpnn_seed= None,
+            esm_model= None, esm_device= None):
         self.prob= prob
-        self.kwargs= kwargs
-
-        mutation_rate= self.kwargs['mutation_rate']
-        sigma= self.kwargs['sigma']
-        protein_mpnn= kwargs['protein_mpnn']
-        protein_mpnn_seed= kwargs['seed']
-        esm_model= kwargs['esm_model']
-        esm_device= kwargs['esm_device']
 
         if choose_pos_method == 'random':
-            self.choose_pos= lambda candidate, protein, allowed_pos_list: self._random_sampling(allowed_pos_list, self.mutation_rate)
+            self.choose_pos= lambda candidate, protein, allowed_pos_list: self._random_sampling(allowed_pos_list, mutation_rate)
         elif choose_pos_method == 'spatial_coupling':
             self.choose_pos= lambda candidate, protein, allowed_pos_list: self._spatially_coupled_sampling(
                 protein,
@@ -31,6 +27,7 @@ class MutationMethod(object):
                 rng.permuted(allowed_pos_list),
                 mutation_rate,
                 sigma)
+        #TODO: likelihood_ESM is not currently correctly implemented; need to take mutation_rate and select a subset, not just rank
         elif choose_pos_method == 'likelihood_ESM':
             self.choose_pos= lambda candidate, protein, allowed_pos_list: self._likelihood_esm_score_rank(
                 ObjectiveESM(
@@ -62,18 +59,19 @@ class MutationMethod(object):
             raise ValueError('Unknown choose_pos_method')
 
         if choose_AA_method == 'random':
-            self.choose_AA= lambda candidate, proposed_des_pos_list: self._random_resetting([candidate], proposed_des_pos_list)
+            self.choose_AA= lambda candidate, protein, proposed_des_pos_list: self._random_resetting([candidate], protein, proposed_des_pos_list)
         elif choose_AA_method in ['ProteinMPNN-AD', 'ProteinMPNN-PD']:
-            self.choose_AA= lambda candidate, proposed_des_pos_list: \
+            self.choose_AA= lambda candidate, protein, proposed_des_pos_list: \
                 self._protein_mpnn(protein_mpnn, choose_AA_method, protein_mpnn_seed, [candidate], proposed_des_pos_list)
         else:
             raise ValueError('Unknown choose_AA_method')
 
-    def apply(self, candidate, protein, allowed_pos_list):
-        return self.choose_AA(candidate, self.choose_pos(candidate, protein, allowed_pos_list))
+    def apply(self, candidate, protein, allowed_pos_list= None):
+        if allowed_pos_list is None:
+            allowed_pos_list= np.arange(protein.design_seq.n_des_res) # by default, allow all designable positions to be redesigned
+        return np.squeeze(self.choose_AA(candidate, protein, self.choose_pos(candidate, protein, allowed_pos_list)))
 
-    def _random_sampling(self, allowed_pos_list):
-        mutation_rate= self.kwargs['mutation_rate']
+    def _random_sampling(self, allowed_pos_list, mutation_rate):
         des_pos_list= []
         for pos in allowed_pos_list:
             if rng.random() < mutation_rate:
@@ -84,7 +82,8 @@ class MutationMethod(object):
         des_pos_list= []
         n_des_pos= len(allowed_pos_list)
         n_mutations= rng.binomial(n_des_pos, mutation_rate)
-        gaussian_kernel= np.exp(-protein.CA_dist_matrices[chain_id]**2/sigma**2) # assuming that the allowed_pos_list is a subset of the indices represented in the dist matrix
+        dist_matrix= protein.get_CA_dist_matrices(chain_id)
+        gaussian_kernel= np.exp(-dist_matrix**2/sigma**2) # assuming that the allowed_pos_list is a subset of the indices represented in the dist matrix
         for des_pos in hotspot_allowed_des_pos_ranked_list:
             n_mutations_remaining= n_mutations - len(des_pos_list)
             if n_mutations_remaining > 0:
@@ -119,7 +118,7 @@ class MutationMethod(object):
 
         for candidate in Xp:
             for des_pos in proposed_des_pos_list:
-                alphabet= protein.design_seq.tied_residues[des_pos].allowed_AA
+                alphabet= list(protein.design_seq.tied_residues[des_pos].allowed_AA)
                 candidate[des_pos]= rng.choice(alphabet)
         return Xp
 
@@ -127,7 +126,7 @@ class MutationMethod(object):
         new_candidates= []
         for candidate in candidates:
             # take the 0th element since we only designed one new sequence
-            new_candidate= protein_mpnn.design_and_decode_to_candidates(method, candidate, proposed_des_pos_list, num_seqs= 1, batch_size= 1, seed= seed)[0]
+            new_candidate= np.squeeze(protein_mpnn.design_and_decode_to_candidates(method, candidate, proposed_des_pos_list, num_seqs= 1, batch_size= 1, seed= seed))
             new_candidates.append(new_candidate)
 
     def _random_chain_picker(self, protein):
@@ -141,12 +140,10 @@ class ProteinMutation(Mutation):
     #TODO: check that everytime you get a different des_ind
     #TODO: implement MPI
     def _do(self, problem, candidates, **kwargs):
-        allowed_pos_list= np.arange(problem.protein.design_seq.n_des_res) # allow all designable positions to be redesigned
-
         Xp= []
         for candidate in candidates:
             chosen_method= rng.choice(self.method_list, p= [method.prob for method in self.method_list])
-            proposed_candidate= chosen_method.apply(candidate, self.problem.protein, allowed_pos_list)
+            proposed_candidate= chosen_method.apply(candidate, problem.protein)
             Xp.append(proposed_candidate)
 
         return np.asarray(Xp)
@@ -156,10 +153,11 @@ class ProteinSampling(Sampling):
         method= MutationMethod(
             choose_pos_method= 'random',
             choose_AA_method= 'random',
-            mutation_rate= 0.05
+            mutation_rate= 0.05,
+            prob= 1.0
         )
         WT_candidate= problem.protein.get_candidate()
-        proposed_candidates= np.array([method.apply(WT_candidate) for _ in range(n_samples)])
+        proposed_candidates= np.array([method.apply(WT_candidate, problem.protein) for _ in range(n_samples)])
         return proposed_candidates
 
 class MultistateSeqDesignProblem(Problem):
@@ -167,7 +165,7 @@ class MultistateSeqDesignProblem(Problem):
         self.protein= protein
         self.protein_mpnn= protein_mpnn_wrapper
         self.metrics_list= metrics_list
-        super().__init__(n_var= protein.design_seq.n_des_pos, n_obj= len(self.metrics_list), n_ieq_constr= 0, xl= None, xu= None, **kwargs)
+        super().__init__(n_var= protein.design_seq.n_des_res, n_obj= len(self.metrics_list), n_ieq_constr= 0, xl= None, xu= None, **kwargs)
 
     def _evaluate(self, candidates, out, *args, **kwargs):
         scores= []

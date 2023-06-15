@@ -64,6 +64,9 @@ class TiedResidue(object):
         if omit_AA is not None:
             for AA in list(omit_AA):
                 self.allowed_AA= self.allowed_AA.replace(AA, '')
+    
+    def __iter__(self):
+        return iter(self.residues)
 
 class DesignSequence(object):
     '''
@@ -72,17 +75,20 @@ class DesignSequence(object):
     def __init__(self, *tied_residues):
         self.tied_residues= tied_residues
 
-        self.n_des_res= len(self.tied_res)
+        self.n_des_res= len(self.tied_residues)
         #self.WT_des_seq= np.array([tied_residue.WT_AA for tied_residue in self.tied_residues])
 
-        self.chains_to_design= np.array([[residue.chain for residue in tied_residue] for tied_residue in self.tied_residues])
+        self.chains_to_design= np.array([[residue.chain_id for residue in tied_residue] for tied_residue in self.tied_residues])
         self.chains_to_design= np.unique(self.chains_to_design.flatten()) # will return in alphabetical order; upper case before lower case
 
         #TODO: is chain_des_pos_dict ever used?
         self.chain_des_pos_dict= {chain: [] for chain in self.chains_to_design}
         for tied_residue in self.tied_residues:
             for residue in tied_residue:
-                self.chain_des_pos_dict[residue.chain].append(residue.resid)
+                self.chain_des_pos_dict[residue.chain_id].append(residue.resid)
+    
+    def __iter__(self):
+        return iter(self.tied_residues)
 
 class Chain(object):
     def __init__(self, chain_id, init_resid, fin_resid, internal_missing_res_list, full_seq):
@@ -116,7 +122,6 @@ class Protein(object):
         self.chains_dict= {chain.chain_id: chain for chain in self.chains_list}
 
         self.pdb_files_dir= pdb_files_dir
-
         self.helper_scripts_dir= protein_mpnn_helper_scripts_dir
         
         self.parsed_pdb_json, self.parsed_pdb_handle= self.parse_pdbs()
@@ -134,7 +139,7 @@ class Protein(object):
             rep_res= tied_res.residues[0]
             chain_id= rep_res.chain_id
             resid= rep_res.resid
-            res_ind= resid - self.protein.chains_dict[chain_id].init_resid
+            res_ind= resid - self.chains_dict[chain_id].init_resid
             candidate.append(self.chains_dict[chain_id].full_seq[res_ind])
         return candidate
 
@@ -146,8 +151,7 @@ class Protein(object):
             drop_internal_missing_res, 
             replace_missing_residues_with= None
         ):
-        full_seq= np.copy(self.chain.full_seq)
-        des_pos_list= self.design_seq.chain_des_pos_dict[chain_id]
+        full_seq= np.array(list(self.chains_dict[chain_id].full_seq))
         init_resid, fin_resid= self.chains_dict[chain_id].resid_range
 
         ind_to_keep= []
@@ -158,7 +162,7 @@ class Protein(object):
                     pass
                 elif replace_missing_residues_with is not None:
                     ind_to_replace.append(ind)
-            elif (ind + 1) in self.chain.internal_missing_res_list:
+            elif (ind + 1) in self.chains_dict[chain_id].internal_missing_res_list:
                 if drop_internal_missing_res:
                     pass
                 elif replace_missing_residues_with is not None:
@@ -186,9 +190,9 @@ class Protein(object):
         out= tempfile.NamedTemporaryFile()
         subprocess.run([
             sys.executable, f'{self.helper_scripts_dir}/parse_multiple_chains.py',
-            f'--input_path="{combined_pdb_file_dir.name}"',
-            f'--output_path="{out.name}"'
-        ], stdout= subprocess.PIPE, stderr= subprocess.PIPE, check= True)
+            f'--input_path={combined_pdb_file_dir.name}',
+            f'--output_path={out.name}'
+        ], stdout= subprocess.PIPE, stderr= subprocess.PIPE, check= False)
 
         combined_pdb_file_dir.cleanup()
 
@@ -219,14 +223,14 @@ class Protein(object):
         return {'json': parsed_pdb_json, 'exec_str': 'jsonl_path'}, out
     
     def parse_fixed_chains(self):
-        if self.parsed_pdb_json['num_of_chains'] > len(self.chain_list):
+        if self.parsed_pdb_json['json']['num_of_chains'] > len(self.chains_list):
             chains_to_design_str= ','.join(self.design_seq.chains_to_design)
             out= tempfile.NamedTemporaryFile()
             subprocess.run([
                 sys.executable, f'{self.helper_scripts_dir}/assign_fixed_chains.py',
-                f'--input_path="{self.parsed_pdb_handle.name}"',
-                f'--output_path="{out.name}"',
-                f'--chain_list="{chains_to_design_str}"'
+                f'--input_path={self.parsed_pdb_handle.name}',
+                f'--output_path={out.name}',
+                f'--chain_list={chains_to_design_str}'
             ], stdout= subprocess.PIPE, stderr= subprocess.PIPE, check= True)
 
             with open(out.name, 'r') as f:
@@ -262,10 +266,10 @@ class Protein(object):
             out= tempfile.NamedTemporaryFile()
             subprocess.run([
                 sys.executable, f'{self.helper_scripts_dir}/make_fixed_positions_dict.py',
-                f'--input_path="{self.parsed_pdb_handle.name}"',
-                f'--output_path="{out.name}"',
-                f'--chain_list="{chains_str}"',
-                f'--position_list="{fixed_pos_str}"'
+                f'--input_path={self.parsed_pdb_handle.name}',
+                f'--output_path={out.name}',
+                f'--chain_list={chains_str}',
+                f'--position_list={fixed_pos_str}'
             ], stdout= subprocess.PIPE, stderr= subprocess.PIPE, check= True)
 
             with open(out.name, 'r') as f:
@@ -288,21 +292,19 @@ class Protein(object):
     def parse_omit_AA(self):
         raise NotImplementedError()
 
-    def gen_CA_dist_matrices(self):
-        dist_mat_dict= {}
-        for chain in self.chains_list:
-            chain_id= chain.chain_id
-            init_resid= chain.init_resid
-            des_pos= self.design_seq.chain_des_pos_dict[chain_id]
-            des_pos= np.sort(des_pos)
-
-            ca_coords= np.asarray(self.parsed_pdb_json[f'coords_chain_{chain_id}'][f'CA_chain_{chain_id}'])
-            des_pos_arr= np.asarray(des_pos, dtype= int) - init_resid
-            ca_coords_des= ca_coords[des_pos_arr]
-            dist_mat= distance_matrix(ca_coords_des, ca_coords_des, p= 2)
-            dist_mat_dict[chain_id]= dist_mat
+    def get_CA_dist_matrices(self, chain_id):
+        chain= self.chains_dict[chain_id]
         
-        self.CA_dist_matrices= dist_mat_dict
+        init_resid= chain.init_resid
+        des_pos= self.design_seq.chain_des_pos_dict[chain_id]
+        des_pos= np.sort(des_pos)
+
+        ca_coords= np.asarray(self.parsed_pdb_json['json'][f'coords_chain_{chain_id}'][f'CA_chain_{chain_id}'])
+        des_pos_arr= np.asarray(des_pos, dtype= int) - init_resid
+        ca_coords_des= ca_coords[des_pos_arr]
+        dist_mat= distance_matrix(ca_coords_des, ca_coords_des, p= 2)
+        
+        return dist_mat
 
     def dump_jsons(self):
         out_dir= tempfile.TemporaryDirectory()
@@ -340,7 +342,7 @@ class DesignedProtein(Protein):
                 chain.full_seq= new_full_seq
         
         # update design_seq based on proposed_des_pos_list
-        new_design_seq= DesignSequence(*wt_protein.design_seq[proposed_des_pos_list])
+        new_design_seq= DesignSequence(*[wt_protein.design_seq.tied_residues[des_pos] for des_pos in proposed_des_pos_list])
 
-        super().__init__(new_design_seq, new_chains_list, wt_protein.pdb_files_dir, wt_protein.protein_mpnn_helper_scripts_dir)
+        super().__init__(new_design_seq, new_chains_list, wt_protein.pdb_files_dir, wt_protein.helper_scripts_dir)
     

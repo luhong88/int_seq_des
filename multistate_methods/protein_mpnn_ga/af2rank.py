@@ -21,7 +21,7 @@ def tmscore(x,y, tmscore_exec):
   temp_dir= tempfile.TemporaryDirectory()
   now = datetime.now() #LH
   randint= random.randint(0, 100000) #LH
-  out_names= [f'{temp_dir}/{now.strftime("%H%M%S")}_{n}_{hash(str(z))}_{randint}.pdb' for n, z in enumerate([x, y])] #LH
+  out_names= [f'{temp_dir.name}/{now.strftime("%H%M%S")}_{n}_{hash(str(z))}_{randint}.pdb' for n, z in enumerate([x, y])] #LH
   # save to dumpy pdb files
   for n,z in enumerate([x,y]):
     out = open(out_names[n],"w") #LH

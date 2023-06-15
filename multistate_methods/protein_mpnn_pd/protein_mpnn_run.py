@@ -474,7 +474,7 @@ if __name__ == "__main__":
     
     argparser.add_argument("--tied_positions_jsonl", type=str, default='', help="Path to a dictionary with tied positions")
     
-    argparser.add_argument("--pareto", action="store_true", default= False, helper="Flag to turn on Pareto front conditional sampling")
+    argparser.add_argument("--pareto", action="store_true", default= False, help="Flag to turn on Pareto front conditional sampling")
     argparser.add_argument("--geometric_prob", type=float, default=1.0, help="Parameter p for geometric probability when picking which Pareto front to sample from")
     argparser.add_argument("--uniform_sampling", type=int, default=0, help="0 for False (sample using weighted average probabilities); 1 for True (uniform sampling on the Pareto front)")
     argparser.add_argument("--write_to_stdout", action="store_true", default=False, help="Flag to pipe fa outputs to the stdout stream")

@@ -15,11 +15,16 @@ class Device(object):
             del os.environ['CUDA_VISIBLE_DEVICES']
 
 class ObjectiveAF2Rank(object):
-    #TODO: make sure that this method can handle multiple chains at once
+    #TODO: make sure that this method can handle multiple chains at once (also need to support undesigned chains)
     #TODO: implement cpu device
-    def __init__(self, chain_id, template_file_loc, tmscore_exec, model_name= 'model_1_ptm', score_term= 'composite'):
+    def __init__(self, chain_id, template_file_loc, tmscore_exec, params_dir, model_name= 'model_1_ptm', score_term= 'composite'):
         self.chain_id= chain_id
-        self.model= af2rank(pdb= template_file_loc, chain= chain_id, model_name= model_name, tmscore_exec= tmscore_exec)
+        self.model= af2rank(
+            pdb= template_file_loc,
+            chain= chain_id,
+            model_name= model_name,
+            tmscore_exec= tmscore_exec,
+            params_dir= params_dir)
         self.score_term= score_term
         self.settings= {
             'rm_seq': True, #mask_sequence
@@ -135,7 +140,13 @@ class ProteinMPNNWrapper(object):
                     '--uniform_sampling', str(self.uniform_sampling),
                     '--geometric_prob', str(self.geometric_prob)
                 ]
-            proc= subprocess.run(exec_str, stdout= subprocess.PIPE, stderr= subprocess.PIPE, check= True)
+            #proc= subprocess.run(exec_str, stdout= subprocess.PIPE, stderr= subprocess.PIPE, check= True)
+            proc= subprocess.run(exec_str, stdout= subprocess.PIPE, stderr= subprocess.PIPE, check= False)
+            if len(proc.stderr) > 0:
+                print(exec_str)
+                print(proc.stderr)
+                sys.exit(1)
+
             records = SeqIO.parse(proc.stdout, "fasta")
 
             out_dir.cleanup()
