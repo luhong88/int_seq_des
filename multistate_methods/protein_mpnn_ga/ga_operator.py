@@ -31,7 +31,6 @@ class MutationMethod(object):
         elif choose_pos_method == 'likelihood_ESM':
             self.choose_pos= lambda candidate, protein, allowed_pos_list: self._likelihood_esm_score_rank(
                 ObjectiveESM(
-                    '_',
                     self._random_chain_picker(protein),
                     model_name= esm_model if esm_model is not None else 'esm1v',
                     device= esm_device if esm_device is not None else 'cpu'
@@ -43,7 +42,6 @@ class MutationMethod(object):
         elif choose_pos_method == 'ESM+spatial':
             self.choose_pos= lambda candidate, protein, allowed_pos_list: self._esm_then_spatial(
                 ObjectiveESM(
-                    '_',
                     self._random_chain_picker(protein),
                     model_name= self.esm_model if esm_model is not None else 'esm1v',
                     device= self.esm_device if esm_device is not None else 'cpu'
@@ -128,6 +126,7 @@ class MutationMethod(object):
             # take the 0th element since we only designed one new sequence
             new_candidate= np.squeeze(protein_mpnn.design_and_decode_to_candidates(method, candidate, proposed_des_pos_list, num_seqs= 1, batch_size= 1, seed= seed))
             new_candidates.append(new_candidate)
+        return np.asarray(new_candidates)
 
     def _random_chain_picker(self, protein):
         return rng.choice(list(protein.chains_dict.keys()))
@@ -140,6 +139,7 @@ class ProteinMutation(Mutation):
     #TODO: check that everytime you get a different des_ind
     #TODO: implement MPI
     def _do(self, problem, candidates, **kwargs):
+        print(candidates)
         Xp= []
         for candidate in candidates:
             chosen_method= rng.choice(self.method_list, p= [method.prob for method in self.method_list])
