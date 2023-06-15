@@ -145,7 +145,7 @@ class ProteinMutation(Mutation):
             chosen_method= rng.choice(self.method_list, p= [method.prob for method in self.method_list])
             proposed_candidate= chosen_method.apply(candidate, problem.protein)
             Xp.append(proposed_candidate)
-
+        print(Xp)
         return np.asarray(Xp)
 
 class ProteinSampling(Sampling):

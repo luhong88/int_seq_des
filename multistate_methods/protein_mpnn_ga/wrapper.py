@@ -147,7 +147,7 @@ class ProteinMPNNWrapper(object):
                 print(proc.stderr)
                 sys.exit(1)
 
-            records = SeqIO.parse(proc.stdout, "fasta")
+            records = SeqIO.parse(io.StringIO(proc.stdout.decode()), "fasta")
 
             out_dir.cleanup()
 

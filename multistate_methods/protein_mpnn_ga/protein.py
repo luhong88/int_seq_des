@@ -151,36 +151,30 @@ class Protein(object):
             drop_internal_missing_res, 
             replace_missing_residues_with= None
         ):
-        full_seq= np.array(list(self.chains_dict[chain_id].full_seq))
+        
+        full_seq= np.array(list(self.chains_dict[chain_id].full_seq), dtype= object)
         init_resid, fin_resid= self.chains_dict[chain_id].resid_range
 
-        ind_to_keep= []
-        ind_to_replace= []
-        for ind in range(len(full_seq)):
-            if ((ind + 1) < init_resid or (ind + 1) > fin_resid):
-                if drop_terminal_missing_res:
-                    pass
-                elif replace_missing_residues_with is not None:
-                    ind_to_replace.append(ind)
-                    ind_to_keep.append(ind)
-            elif (ind + 1) in self.chains_dict[chain_id].internal_missing_res_list:
-                if drop_internal_missing_res:
-                    pass
-                elif replace_missing_residues_with is not None:
-                    ind_to_replace.append(ind)
-                    ind_to_keep.append(ind)
-            else:
-                ind_to_keep.append(ind)
-
         if candidate is not None:
+            #print(candidate)
+            #print(type(candidate))
             for tied_res, candidate_AA in zip(self.design_seq.tied_residues, candidate):
                 for res in tied_res.residues:
                     if res.chain_id == chain_id:
                         full_seq[res.resid - init_resid]= candidate_AA
         
-        full_seq[ind_to_replace]= replace_missing_residues_with
+        resid_arr= np.arange(len(full_seq)) + 1
+        terminal_missing_res_mask= (resid_arr < init_resid) | (resid_arr > fin_resid)
+        internal_missing_res_mask= np.isin(resid_arr, self.chains_dict[chain_id].internal_missing_res_list)
 
-        output_seq= ''.join(full_seq[ind_to_keep])
+        if replace_missing_residues_with is not None:
+            full_seq[terminal_missing_res_mask | internal_missing_res_mask]= replace_missing_residues_with
+        if drop_terminal_missing_res:
+            full_seq[terminal_missing_res_mask]= None
+        if drop_internal_missing_res:
+            full_seq[internal_missing_res_mask]= None
+
+        output_seq= ''.join(full_seq[full_seq != None])
 
         return output_seq
 
@@ -210,6 +204,9 @@ class Protein(object):
                 drop_internal_missing_res= False, 
                 replace_missing_residues_with= '-'
             )
+            #ori_seq= parsed_pdb_json[f'seq_chain_{chain_id}']
+            #print(f'chain {chain_id} parsed seq: {ori_seq}')
+            #print(f'chain {chain_id} changed seq: {chain_full_seq}')
             parsed_pdb_json[f'seq_chain_{chain_id}']= chain_full_seq
         # update the full concatenated seq
         cumulative_seq= ''
@@ -263,7 +260,7 @@ class Protein(object):
             return None
         else:
             fixed_pos_str= ', '.join(fixed_pos_str)
-            chains_str= ','.join(chains_str)
+            chains_str= ' '.join(chains_str)
 
             out= tempfile.NamedTemporaryFile()
             subprocess.run([
