@@ -55,13 +55,14 @@ class ObjectiveAF2Rank(object):
 
 class ObjectiveESM(object):
     #TODO: make sure that this method can handle multiple chains at once
-    def __init__(self, chain_id, model_name= 'esm1v', device= 'cpu'):
+    def __init__(self, chain_id, script_loc, model_name= 'esm1v', device= 'cpu'):
         self.chain_id= chain_id
         self.model_name= model_name
+        self.device= device
 
         # input and output both handled through io streams
         self.exec= [
-            sys.executable, 'likelihood_esm.py',
+            sys.executable, script_loc,
             '--device', device,
             '--model', self.model_name,
             '--score_name', self.model_name,
@@ -81,16 +82,16 @@ class ObjectiveESM(object):
 
             if position_wise:
                 out= tempfile.NamedTemporaryFile()
-                exec+= ['--positionwise', out.name]
+                exec_str= self.exec + ['--positionwise', out.name]
 
-                proc= subprocess.Popen(exec, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                proc= subprocess.Popen(exec_str, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 proc.communicate(input= input_fa.encode())
                 output_df= pd.read_csv(out.name, sep= ',')
                 output_arr= output_df[self.model_name].str.split(pat= ';', expand= True).to_numpy()
                 out.close()
             else:
-                proc= subprocess.Popen(exec, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                output= proc.communicate(input= input_fa.encode())[0]
+                proc= subprocess.Popen(self.exec, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                output, err= proc.communicate(input= input_fa.encode())
                 output_df= pd.read_csv(io.StringIO(output.decode()), sep= ',')
                 output_arr= output_df[self.model_name].to_numpy()
             
