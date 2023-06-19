@@ -13,6 +13,10 @@ import torch.nn.functional as F
 import random
 import itertools
 
+# L.H.
+from scipy.cluster.hierarchy import linkage, fcluster
+from scipy.spatial.distance import squareform
+
 #A number of functions/classes are adopted from: https://github.com/jingraham/neurips19-graph-protein-design
 
 def parse_fasta(filename,limit=-1, omit=[]):
@@ -1311,7 +1315,7 @@ class ProteinMPNN(nn.Module):
 
 
     # L.H.
-    def tied_pareto_sample(self, X, randn, S_true, chain_mask, chain_encoding_all, residue_idx, mask=None, temperature=1.0, omit_AAs_np=None, bias_AAs_np=None, chain_M_pos=None, omit_AA_mask=None, pssm_coef=None, pssm_bias=None, pssm_multi=None, pssm_log_odds_flag=None, pssm_log_odds_mask=None, pssm_bias_flag=None, tied_pos=None, tied_pos_for_ave=None, tied_beta=None, bias_by_res=None, geometric_prob= 1.0, uniform_sampling= 0):
+    def tied_pareto_sample(self, X, randn, S_true, chain_mask, chain_encoding_all, residue_idx, mask=None, temperature=1.0, omit_AAs_np=None, bias_AAs_np=None, chain_M_pos=None, omit_AA_mask=None, pssm_coef=None, pssm_bias=None, pssm_multi=None, pssm_log_odds_flag=None, pssm_log_odds_mask=None, pssm_bias_flag=None, tied_pos=None, tied_beta=None, bias_by_res=None, detect_sym= False, corr_cutoff= 0.9, geometric_prob= 1.0, uniform_sampling= 0):
         device = X.device
         # Prepare node and edge embeddings
         E, E_idx = self.features(X, mask, residue_idx, chain_encoding_all)
@@ -1426,25 +1430,46 @@ class ProteinMPNN(nn.Module):
                     probs = probs_masked/torch.sum(probs_masked, dim=-1, keepdim=True) #[B, t, 21]
                 
                 if probs.size(1) == 1:
-                    # if no tied positions or if the position is specified to require averaging, then sample from ave_probs
+                    # if no tied positions then sample from ave_probs
                     S_t_repeat = torch.multinomial(ave_probs, 1).squeeze(-1)
                 else:
-                    geometric= torch.distributions.geometric.Geometric(geometric_prob)
-                    
-                    ave_probs_pareto_masked= ave_probs.clone()
                     for sample in range(N_batch):
-                        pareto_rankings= _nondominated_sorting(torch.t(probs[sample]))
-                        max_ranking= torch.max(torch.tensor(0), torch.max(pareto_rankings) - 1) # do not choose the gap token by - 1, which will always be ranked last; take max with 0 since the best front is 0, cannot be lower than that
-                        while True:
-                            proposed_front= geometric.sample().int()
-                            if proposed_front <= max_ranking:
-                                chosen_front= proposed_front
-                                break
-                        pareto_mask= pareto_rankings == chosen_front.item()
-                        ave_probs_pareto_masked[sample][~pareto_mask]= 0.
-                        if uniform_sampling == 1:
-                            ave_probs_pareto_masked[sample][pareto_mask]= 1.
-                    S_t_repeat = torch.multinomial(ave_probs_pareto_masked, 1).squeeze(-1)
+                        # first check for degeneracy
+                        if detect_sym:
+                            dissimilarity_mat= 1. - torch.corrcoef(probs[sample]).numpy() # need to copy to cpu, may be close
+                            dissimilarity_vec= squareform(dissimilarity_mat, checks= False, force= 'tovector')
+                            hierarchy= linkage(dissimilarity_vec, method= 'single')
+                            labels= fcluster(hierarchy, 1 - corr_cutoff, criterion= 'distance') - 1
+                            n_clusters= np.max(labels)
+
+                            reduced_probs= torch.zeros((n_clusters, 21), device= device)
+                            for cl in range(n_clusters):
+                                cl_mask= labels == cl
+                                reduced_probs[cl]= torch.mean(probs[sample][cl_mask], axis= 0) # note that this is averaging the probabilities, not the same thing as averaging the logits for tied symmetric positions
+                        else:
+                            reduced_probs= probs[sample]
+                        
+                        if reduced_probs.size(0) ==1:
+                            # if no tied positions then sample from ave_probs
+                            S_t_repeat = torch.multinomial(ave_probs, 1).squeeze(-1)
+                        else:
+                            geometric= torch.distributions.geometric.Geometric(geometric_prob)
+                            ave_probs_pareto_masked= ave_probs.clone()
+                            pareto_rankings= _nondominated_sorting(torch.t(reduced_probs))
+                            if geometric_prob < 1.0:
+                                max_ranking= torch.max(torch.tensor(0), torch.max(pareto_rankings) - 1) # do not choose the gap token by - 1, which will always be ranked last; take max with 0 since the best front is 0, cannot be lower than that
+                                while True:
+                                    proposed_front= geometric.sample().int()
+                                    if proposed_front <= max_ranking:
+                                        chosen_front= proposed_front
+                                        break
+                            else:
+                                chosen_front= torch.tensor(0)
+                            pareto_mask= pareto_rankings == chosen_front.item()
+                            ave_probs_pareto_masked[sample][~pareto_mask]= 0.
+                            if uniform_sampling == 1:
+                                ave_probs_pareto_masked[sample][pareto_mask]= 1.
+                        S_t_repeat = torch.multinomial(ave_probs_pareto_masked, 1).squeeze(-1)
                     
                 S_t_repeat = (chain_mask[:,t]*S_t_repeat + (1-chain_mask[:,t])*S_true[:,t]).long() #hard pick fixed positions
                 for t in t_list:
