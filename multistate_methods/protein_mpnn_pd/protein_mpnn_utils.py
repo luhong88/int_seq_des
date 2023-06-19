@@ -1436,7 +1436,7 @@ class ProteinMPNN(nn.Module):
                     for sample in range(N_batch):
                         # first check for degeneracy
                         if detect_sym:
-                            dissimilarity_mat= 1. - torch.corrcoef(probs[sample]).numpy() # need to copy to cpu, may be close
+                            dissimilarity_mat= 1. - torch.corrcoef(probs[sample]).numpy() # need to copy to cpu, may be slow
                             dissimilarity_vec= squareform(dissimilarity_mat, checks= False, force= 'tovector')
                             hierarchy= linkage(dissimilarity_vec, method= 'single')
                             labels= fcluster(hierarchy, 1 - corr_cutoff, criterion= 'distance') - 1
