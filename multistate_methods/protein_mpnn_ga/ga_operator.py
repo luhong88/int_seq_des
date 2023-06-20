@@ -15,8 +15,7 @@ sep= '-'*50
 rng= np.random.default_rng()
 
 class MutationMethod(object):
-    #TODO: make it able to handle multiple candidates at once?
-    # all methods handle single candidate!
+    # all private methods are written to handle a single candidate at each call
     def __init__(
             self, choose_pos_method, choose_AA_method, prob,
             mutation_rate, sigma= None,
@@ -159,7 +158,6 @@ class ProteinMutation(Mutation):
         super().__init__(prob=1.0, prob_var=None, **kwargs)
         self.method_list= method_list
 
-    #TODO: check that everytime you get a different des_ind
     #TODO: implement MPI
     def _do(self, problem, candidates, **kwargs):
         Xp= []

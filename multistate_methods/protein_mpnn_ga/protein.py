@@ -16,10 +16,13 @@ def _equidistant_points(n_pts, mol_radius, min_dist):
     Create a list of equidistant points on a circle in the xy-plane
     The minimum distance between spheres of radius mol_radius centered at these points is 2*mol_radius+min_dist
     '''
-    theta= 2*np.pi/n_pts
-    radius= (2*mol_radius + min_dist)/(2*np.sin(theta/2.))
-    pos_list= np.asarray([[radius*np.cos(n*theta), radius*np.sin(n*theta), 0.] for n in range(n_pts)])
-    return pos_list
+    if n_pts > 1:
+        theta= 2*np.pi/n_pts
+        radius= (2*mol_radius + min_dist)/(2*np.sin(theta/2.))
+        pos_list= np.asarray([[radius*np.cos(n*theta), radius*np.sin(n*theta), 0.] for n in range(n_pts)])
+        return pos_list
+    else:
+        return np.array([[0., 0., 0.]])
 
 def _merge_pdb_files(input_files, output_file, min_dist= 100):
         '''
@@ -31,6 +34,8 @@ def _merge_pdb_files(input_files, output_file, min_dist= 100):
 
         CA_coords_list= []
         for structure in structures:
+            if len(structure) > 1:
+                logger.warning(f'More than one models detected in {structure.id}; only the first model will be read and used!')
             CA_coords= []
             for chain in structure[0]:
                 for residue in chain:
@@ -48,9 +53,10 @@ def _merge_pdb_files(input_files, output_file, min_dist= 100):
                         atom.transform(np.eye(3), new_COM - old_COM)
         
         merged_structure= structures[0].copy()
-        for structure in structures[1:]:
-            for chain in structure[0]:
-                merged_structure[0].add(chain)
+        if len(structures) > 1:
+            for structure in structures[1:]:
+                for chain in structure[0]:
+                    merged_structure[0].add(chain)
         
         # Write the merged structure to the output file
         pdb_io= PDBIO()
@@ -59,6 +65,13 @@ def _merge_pdb_files(input_files, output_file, min_dist= 100):
 
 class Residue(object):
     def __init__(self, chain_id, resid, weight):
+        if not isinstance(chain_id, str):
+            raise TypeError(f'chain_id {chain_id} is not a str.')
+        if not (isinstance(resid, int) and resid > 0):
+            raise TypeError(f'resid {resid} is not a positive integer (resid should be 1-indexed).')
+        if not isinstance(weight, float):
+            raise TypeError(f'weight {weight} is not a float.')
+        
         self.chain_id= chain_id
         self.resid= resid
         self.weight= weight
@@ -68,12 +81,20 @@ class TiedResidue(object):
         self.residues= residues
         self.allowed_AA= alphabet
 
+        chain_ids= [res.chain_id for res in residues]
+        chain_ids_unique= [*set(chain_ids)]
+        if len(chain_ids_unique) != len(chain_ids):
+            logger.warning(f'You are trying to tie together residues in the same chain; this has not been tested and may lead to unexpected behavior.')
+
         if omit_AA is not None:
+            if not isinstance(omit_AA, str):
+                raise TypeError(f'omit_AA {omit_AA} is not a str.')
             for AA in list(omit_AA):
                 self.allowed_AA= self.allowed_AA.replace(AA, '')
     
     def __iter__(self):
         return iter(self.residues)
+    
     def __str__(self):
         return '[' + ', '.join([f'{res.chain_id}.{res.resid}({res.weight})' for res in self]) + ']'
 
@@ -89,7 +110,6 @@ class DesignSequence(object):
         self.chains_to_design= np.array([[residue.chain_id for residue in tied_residue] for tied_residue in self.tied_residues])
         self.chains_to_design= np.unique(self.chains_to_design.flatten()) # will return in alphabetical order; upper case before lower case
 
-        #TODO: is chain_des_pos_dict ever used?
         self.chain_des_pos_dict= {chain: [] for chain in self.chains_to_design}
         for tied_residue in self.tied_residues:
             for residue in tied_residue:
@@ -99,11 +119,23 @@ class DesignSequence(object):
     
     def __iter__(self):
         return iter(self.tied_residues)
+    
     def __str__(self):
         return '[' + ', '.join([str(tied_res) for tied_res in self]) + ']'
 
 class Chain(object):
     def __init__(self, chain_id, init_resid, fin_resid, internal_missing_res_list, full_seq):
+        if not isinstance(chain_id, str):
+            raise TypeError(f'chain_id {chain_id} is not a str.')
+        if not (isinstance(init_resid, int) and init_resid > 0):
+            raise TypeError(f'init_resid {init_resid} is not a positive integer (resid is 1-indexed).')
+        if not (isinstance(fin_resid, int) and fin_resid > 0):
+            raise TypeError(f'fin_resid {fin_resid} is not a positive integer (resid is 1-indexed).')
+        if not isinstance(internal_missing_res_list, list):
+            raise TypeError(f'internal_missing_res_list {internal_missing_res_list} is not a list.')
+        if not isinstance(full_seq, str):
+            raise TypeError(f'full_seq {full_seq} is not a str.')
+        
         self.chain_id= chain_id
 
         self.init_resid= init_resid
@@ -123,8 +155,6 @@ class Protein(object):
         It is okay to have gaps in the chains; resid 1-indexed
         
         '''
-
-        #TODO: allow for some tied positions to be missing in a subset of the states
         self.design_seq= design_seq
 
         # chains_list should only include designable chains
@@ -171,8 +201,6 @@ class Protein(object):
         init_resid, fin_resid= self.chains_dict[chain_id].resid_range
 
         if candidate is not None:
-            #print(candidate)
-            #print(type(candidate))
             for tied_res, candidate_AA in zip(self.design_seq.tied_residues, candidate):
                 for res in tied_res.residues:
                     if res.chain_id == chain_id:
@@ -214,15 +242,20 @@ class Protein(object):
 
         # correct any discrepancy between the sequence given by the chain objects vs. the sequence read in from the pdb files
         for chain_id in self.chains_dict.keys():
-            chain_full_seq= self.get_chain_full_seq(
+            old_full_seq= parsed_pdb_json[f'seq_chain_{chain_id}']
+            new_full_seq= self.get_chain_full_seq(
                 chain_id,
                 candidate= None, 
                 drop_terminal_missing_res= True, 
                 drop_internal_missing_res= False, 
                 replace_missing_residues_with= '-'
             )
-            logger.debug(f'parse_pdbs() chain {chain_id} sequence is updated:\n{sep}\nold_seq: {parsed_pdb_json[f"seq_chain_{chain_id}"]}\nnew_seq: {chain_full_seq}\n{sep}\n')
-            parsed_pdb_json[f'seq_chain_{chain_id}']= chain_full_seq
+
+            if old_full_seq != new_full_seq:
+                logger.warning(f'The chain {chain_id} sequence parsed from the pdb file ({old_full_seq} is not the same as that parsed from the inputs (new_full_seq))')
+            logger.debug(f'parse_pdbs() chain {chain_id} sequence is updated:\n{sep}\nold_seq: {old_full_seq}\nnew_seq: {new_full_seq}\n{sep}\n')
+            
+            parsed_pdb_json[f'seq_chain_{chain_id}']= new_full_seq
         # update the full concatenated seq
         cumulative_seq= ''
         for key in parsed_pdb_json.keys():
@@ -259,8 +292,6 @@ class Protein(object):
             return None
         
     def parse_fixed_positions(self):
-        
-        #TODO: check if missing residues need to be fixed
         fixed_pos_str= []
         chains_str= []
         for chain_id, des_pos in self.design_seq.chain_des_pos_dict.items():
@@ -274,8 +305,8 @@ class Protein(object):
                 fixed_pos_str.append(' '.join(map(str, fixed_pos_offset)))
                 chains_str.append(chain_id)
         
-        if len(chains_str) == 0:
-            logger.debug(f'make_fixed_positions_dict.py was not called.')
+        if len(fixed_pos_str) == 0:
+            logger.debug(f'make_fixed_positions_dict.py was not called because there are no fixed positions in the designable chains.')
             return None
         else:
             fixed_pos_str= ', '.join(fixed_pos_str)
@@ -299,7 +330,6 @@ class Protein(object):
             return {'json': parsed_fixed_positions, 'exec_str': 'fixed_positions_jsonl'}
     
     def parse_tied_positions(self):
-        #TODO: I think this will not work if multiple res in the same chain are tied; maybe should ban that by checking during construction?
         tied_lists= []
         for tied_residue in self.design_seq:
             tied_list= tied_list= '{' + ', '.join([f'''"{residue.chain_id}": [[{residue.resid - (self.chains_dict[residue.chain_id].init_resid - 1)}], [{residue.weight}]]''' for residue in tied_residue]) + '}'
@@ -356,19 +386,20 @@ class Protein(object):
 class DesignedProtein(Protein):
     def __init__(self, wt_protein, base_candidate, proposed_des_pos_list):
         # update chain full_seq based on candidate
-        # TODO: need to check if this actually updates the chain definitions
-        new_chains_list= wt_protein.chains_list.copy()
-        if base_candidate is not None:
-            for chain in new_chains_list:
-                chain_id= chain.chain_id
+        if base_candidate is None:
+            new_chains_list= wt_protein.chains_list.copy()
+        else:
+            new_chains_list= []
+            for old_chain in wt_protein.chains_list:
                 new_full_seq= wt_protein.get_chain_full_seq(
-                    chain_id, 
+                    old_chain.chain_id,
                     candidate= base_candidate, 
                     drop_terminal_missing_res= False, 
                     drop_internal_missing_res= False, 
                     replace_missing_residues_with= None
                 )
-                chain.full_seq= new_full_seq
+                new_chain= Chain(old_chain.chain_id, old_chain.init_resid, old_chain.fin_resid, old_chain.internal_missing_res_list, new_full_seq)
+                new_chains_list.append(new_chain)
         
         # update design_seq based on proposed_des_pos_list
         new_design_seq= DesignSequence(*[wt_protein.design_seq.tied_residues[des_pos] for des_pos in proposed_des_pos_list])

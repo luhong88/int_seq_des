@@ -23,7 +23,6 @@ class Device(object):
 
 class ObjectiveAF2Rank(object):
     #TODO: make sure that this method can handle multiple chains at once (also need to support undesigned chains)
-    #TODO: implement cpu device
     def __init__(self, chain_id, template_file_loc, tmscore_exec, params_dir, model_name= 'model_1_ptm', score_term= 'composite', device= 'cpu', sign_flip= True):
         self.chain_id= chain_id
         self.model= af2rank(
@@ -41,6 +40,10 @@ class ObjectiveAF2Rank(object):
         }
         self.device= device
         self.sign_flip= sign_flip
+        self.name= ('neg_' if sign_flip else '') + f'af2rank_{score_term}_chain_{chain_id}'
+    
+    def __str__(self):
+        return self.name
         
     def apply(self, candidates, protein):
         '''
@@ -78,6 +81,7 @@ class ObjectiveESM(object):
         self.model_name= model_name
         self.device= device
         self.sign_flip= sign_flip
+        self.name= ('neg_' if sign_flip else '') + f'{model_name}_chain_{chain_id}'
 
         # input and output both handled through io streams
         self.exec= [
@@ -88,6 +92,9 @@ class ObjectiveESM(object):
             '--masking_off',
             '--csv'
         ]
+
+    def __str__(self):
+        return self.name
 
     def apply(self, candidates, protein, position_wise= False):
         '''
