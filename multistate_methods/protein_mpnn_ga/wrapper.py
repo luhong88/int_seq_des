@@ -1,7 +1,14 @@
-import os, io, sys, subprocess, tempfile, numpy as np, pandas as pd
+import os, io, sys, logging, subprocess, tempfile, jax, numpy as np, pandas as pd
 from Bio import SeqIO
 from multistate_methods.protein_mpnn_ga.af2rank import af2rank
 from multistate_methods.protein_mpnn_ga.protein import DesignedProtein
+
+logger= logging.getLogger(__name__)
+c_handler= logging.StreamHandler()
+c_handler.setLevel(logging.DEBUG)
+c_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+logger.addHandler(c_handler)
+sep= '-'*50
 
 # a way to foce cpu computation
 class Device(object):
@@ -17,7 +24,7 @@ class Device(object):
 class ObjectiveAF2Rank(object):
     #TODO: make sure that this method can handle multiple chains at once (also need to support undesigned chains)
     #TODO: implement cpu device
-    def __init__(self, chain_id, template_file_loc, tmscore_exec, params_dir, model_name= 'model_1_ptm', score_term= 'composite'):
+    def __init__(self, chain_id, template_file_loc, tmscore_exec, params_dir, model_name= 'model_1_ptm', score_term= 'composite', device= 'cpu', sign_flip= True):
         self.chain_id= chain_id
         self.model= af2rank(
             pdb= template_file_loc,
@@ -32,6 +39,8 @@ class ObjectiveAF2Rank(object):
             'rm_ic': False, #mask_interchain
             'recycles': 1, 'iterations': 1, 'model_name': model_name
         }
+        self.device= device
+        self.sign_flip= sign_flip
         
     def apply(self, candidates, protein):
         '''
@@ -43,22 +52,32 @@ class ObjectiveAF2Rank(object):
             full_seqs.append(full_seq)
 
         output= []
-        for seq_ind, seq in enumerate(full_seqs):
-            output_dict= self.model.predict(seq= seq, **self.settings, output_pdb= None, extras= {'id': seq_ind}, verbose= False)
-            output.append(output_dict[self.score_term])
+        if self.device == 'cpu':
+            with jax.default_device(jax.devices('cpu')[0]):
+                for seq_ind, seq in enumerate(full_seqs):
+                    output_dict= self.model.predict(seq= seq, **self.settings, output_pdb= None, extras= {'id': seq_ind}, verbose= False)
+                    logger.debug(f'AF2Rank (device: {self.device} output:\n{sep}\n{output_dict}\n{sep}\n')
+                    output.append(output_dict[self.score_term])
+        else:
+            for seq_ind, seq in enumerate(full_seqs):
+                output_dict= self.model.predict(seq= seq, **self.settings, output_pdb= None, extras= {'id': seq_ind}, verbose= False)
+                logger.debug(f'AF2Rank (device: {self.device} output:\n{sep}\n{output_dict}\n{sep}\n')
+                output.append(output_dict[self.score_term])
         output= np.asarray(output)
+        neg_output= -output if self.sign_flip else output # take the negative because the algorithm expects a minimization problem
 
-        neg_output= -output # take the negative because the algorithm expects a minimization problem
+        logger.debug(f'AF2Rank (device: {self.device} final output:\n{sep}\n{neg_output}\n{sep}\n')
 
         return neg_output
 
 
 class ObjectiveESM(object):
     #TODO: make sure that this method can handle multiple chains at once
-    def __init__(self, chain_id, script_loc, model_name= 'esm1v', device= 'cpu'):
+    def __init__(self, chain_id, script_loc, model_name= 'esm1v', device= 'cpu', sign_flip= True):
         self.chain_id= chain_id
         self.model_name= model_name
         self.device= device
+        self.sign_flip= sign_flip
 
         # input and output both handled through io streams
         self.exec= [
@@ -95,14 +114,19 @@ class ObjectiveESM(object):
                 output_df= pd.read_csv(io.StringIO(output.decode()), sep= ',')
                 output_arr= output_df[self.model_name].to_numpy()
             
-            neg_output_arr= -output_arr # take the negative because the algorithm expects a minimization problem
+            logger.debug(f'ESM (device: {self.device}) was called with the command:\n{sep}\n{exec_str}\n{sep}\nstdout:\n{sep}\n{proc.stdout}\n{sep}\nstderr:\n{sep}\n{proc.stderr}\n{sep}\n')
+
+            neg_output_arr= -output_arr if self.sign_flip else output_arr # take the negative because the algorithm expects a minimization problem
+            logger.debug(f'ESM apply() output:\n{sep}\n{neg_output_arr}\n{sep}\n')
+
             return neg_output_arr
     
 class ProteinMPNNWrapper(object):
     def __init__(
             self, protein, temp,
             model_weights_loc,
-            uniform_sampling= 0, geometric_prob= 1.0,
+            detect_degeneracy= False, corr_cutoff= 0.9,
+            uniform_sampling= False, geometric_prob= 1.0,
             device= 'cpu', protein_mpnn_run_loc= None
         ):
         self.protein= protein
@@ -115,12 +139,15 @@ class ProteinMPNNWrapper(object):
             '--path_to_model_weights', model_weights_loc,
             '--out_folder', os.getcwd(),
             '--sampling_temp', str(temp),
+            '--corr_uctoff', str(corr_cutoff),
+            '--geometric_prob', str(geometric_prob),
             '--write_to_stdout'
         ]
+        if detect_degeneracy:
+            self.exec_str+= ['--detect_degeneracy']
+        if uniform_sampling:
+            self.exec_str+=['--uniform_sampling']
         #TODO: enable **kwargs parsing
-
-        self.uniform_sampling= uniform_sampling
-        self.geometric_prob= geometric_prob
 
         self.device= device
 
@@ -136,17 +163,9 @@ class ProteinMPNNWrapper(object):
             if seed is not None:
                 exec_str += ['--seed', str(seed)]
             if method == 'ProteinMPNN-PD':
-                exec_str+= [
-                    '--pareto',
-                    '--uniform_sampling', str(self.uniform_sampling),
-                    '--geometric_prob', str(self.geometric_prob)
-                ]
-            #proc= subprocess.run(exec_str, stdout= subprocess.PIPE, stderr= subprocess.PIPE, check= True)
-            proc= subprocess.run(exec_str, stdout= subprocess.PIPE, stderr= subprocess.PIPE, check= False)
-            if len(proc.stderr) > 0:
-                print(exec_str)
-                print(proc.stderr)
-                sys.exit(1)
+                exec_str+= ['--pareto']
+            proc= subprocess.run(exec_str, stdout= subprocess.PIPE, stderr= subprocess.PIPE, check= True)
+            logger.debug(f'ProteinMPNN (device: {self.device}) was called with the command:\n{sep}\n{exec_str}\n{sep}\nstdout:\n{sep}\n{proc.stdout}\n{sep}\nstderr:\n{sep}\n{proc.stderr}\n{sep}\n')
 
             records = SeqIO.parse(io.StringIO(proc.stdout.decode()), "fasta")
 
@@ -174,9 +193,12 @@ class ProteinMPNNWrapper(object):
         candidates= []
         # skip the first element in seq_list, since ProteinMPNN will always output the input sequence as the first output
         for seq in seq_list[1:]:
-            candidates.append([seq[chain_id][res_ind] for chain_id, res_ind in AA_locator])
-        
-        return np.asarray(candidates)
+            candidate= [seq[chain_id][res_ind] for chain_id, res_ind in AA_locator]
+            candidates.append(candidate)
+            logger.debug(f'ProteinMPNN design_seqs_to_candidates() input:\n{sep}\n{seq}\n{sep}\noutput:\n{sep}\n{candidates}\n{sep}\n')
+        candidates= np.asarray(candidates)
+
+        return candidates
     
     def design_and_decode_to_candidates(self, method, base_candidate, proposed_des_pos_list, num_seqs, batch_size, seed= None):
         fa_records= self.design(method, base_candidate, proposed_des_pos_list, num_seqs, batch_size, seed)

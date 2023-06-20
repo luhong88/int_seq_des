@@ -334,7 +334,7 @@ def main(args):
                                 S_sample = sample_dict["S"] 
                             else:
                                 if args.pareto:
-                                    sample_dict = model.tied_pareto_sample(X, randn_2, S, chain_M, chain_encoding_all, residue_idx, mask=mask, temperature=temp, omit_AAs_np=omit_AAs_np, bias_AAs_np=bias_AAs_np, chain_M_pos=chain_M_pos, omit_AA_mask=omit_AA_mask, pssm_coef=pssm_coef, pssm_bias=pssm_bias, pssm_multi=args.pssm_multi, pssm_log_odds_flag=bool(args.pssm_log_odds_flag), pssm_log_odds_mask=pssm_log_odds_mask, pssm_bias_flag=bool(args.pssm_bias_flag), tied_pos=tied_pos_list_of_lists_list[0], tied_beta=tied_beta, bias_by_res=bias_by_res_all, detect_sym= args.detect_sym, corr_cutoff= args.corr_cutoff, geometric_prob= args.geometric_prob, uniform_sampling= args.uniform_sampling)
+                                    sample_dict = model.tied_pareto_sample(X, randn_2, S, chain_M, chain_encoding_all, residue_idx, mask=mask, temperature=temp, omit_AAs_np=omit_AAs_np, bias_AAs_np=bias_AAs_np, chain_M_pos=chain_M_pos, omit_AA_mask=omit_AA_mask, pssm_coef=pssm_coef, pssm_bias=pssm_bias, pssm_multi=args.pssm_multi, pssm_log_odds_flag=bool(args.pssm_log_odds_flag), pssm_log_odds_mask=pssm_log_odds_mask, pssm_bias_flag=bool(args.pssm_bias_flag), tied_pos=tied_pos_list_of_lists_list[0], tied_beta=tied_beta, bias_by_res=bias_by_res_all, detect_degeneracy= args.detect_degeneracy, corr_cutoff= args.corr_cutoff, geometric_prob= args.geometric_prob, uniform_sampling= args.uniform_sampling)
                                 else:
                                     sample_dict = model.tied_sample(X, randn_2, S, chain_M, chain_encoding_all, residue_idx, mask=mask, temperature=temp, omit_AAs_np=omit_AAs_np, bias_AAs_np=bias_AAs_np, chain_M_pos=chain_M_pos, omit_AA_mask=omit_AA_mask, pssm_coef=pssm_coef, pssm_bias=pssm_bias, pssm_multi=args.pssm_multi, pssm_log_odds_flag=bool(args.pssm_log_odds_flag), pssm_log_odds_mask=pssm_log_odds_mask, pssm_bias_flag=bool(args.pssm_bias_flag), tied_pos=tied_pos_list_of_lists_list[0], tied_beta=tied_beta, bias_by_res=bias_by_res_all)
                             # Compute scores
@@ -475,10 +475,10 @@ if __name__ == "__main__":
     argparser.add_argument("--tied_positions_jsonl", type=str, default='', help="Path to a dictionary with tied positions")
     
     argparser.add_argument("--pareto", action="store_true", default= False, help="Flag to turn on Pareto front conditional sampling")
-    argparser.add_argument("--detect_sym", action="store_true", default= False, help="Flag to turn on automatic symmetry detection for tied positions")
+    argparser.add_argument("--detect_degeneracy", action="store_true", default= False, help="Flag to turn on automatic (pseudo)symmetry detection for tied positions")
     argparser.add_argument("--corr_cutoff", type=float, default=0.9, help="Correlation cutoff between [0.0, 1.0] for detecting tied positions as symmetry-related")
     argparser.add_argument("--geometric_prob", type=float, default=1.0, help="Parameter p for geometric probability when picking which Pareto front to sample from")
-    argparser.add_argument("--uniform_sampling", type=int, default=0, help="0 for False (sample using weighted average probabilities); 1 for True (uniform sampling on the Pareto front)")
+    argparser.add_argument("--uniform_sampling", action="store_true", default=False, help="Flag to turn on uniform sampling on the Pareto front; default is to sample using weighted average probabilities)")
     argparser.add_argument("--write_to_stdout", action="store_true", default=False, help="Flag to pipe fa outputs to the stdout stream")
 
     args = argparser.parse_args()    

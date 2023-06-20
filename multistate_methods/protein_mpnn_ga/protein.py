@@ -1,6 +1,13 @@
-import glob, sys, subprocess, tempfile, json, numpy as np
+import glob, sys, logging, subprocess, tempfile, json, numpy as np
 from scipy.spatial import distance_matrix
 from Bio.PDB import PDBParser, PDBIO
+
+logger= logging.getLogger(__name__)
+c_handler= logging.StreamHandler()
+c_handler.setLevel(logging.DEBUG)
+c_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+logger.addHandler(c_handler)
+sep= '-'*50
 
 alphabet = 'ACDEFGHIKLMNPQRSTVWY'
 
@@ -67,6 +74,8 @@ class TiedResidue(object):
     
     def __iter__(self):
         return iter(self.residues)
+    def __str__(self):
+        return '[' + ', '.join([f'{res.chain_id}.{res.resid}({res.weight})' for res in self]) + ']'
 
 class DesignSequence(object):
     '''
@@ -76,7 +85,6 @@ class DesignSequence(object):
         self.tied_residues= tied_residues
 
         self.n_des_res= len(self.tied_residues)
-        #self.WT_des_seq= np.array([tied_residue.WT_AA for tied_residue in self.tied_residues])
 
         self.chains_to_design= np.array([[residue.chain_id for residue in tied_residue] for tied_residue in self.tied_residues])
         self.chains_to_design= np.unique(self.chains_to_design.flatten()) # will return in alphabetical order; upper case before lower case
@@ -86,9 +94,13 @@ class DesignSequence(object):
         for tied_residue in self.tied_residues:
             for residue in tied_residue:
                 self.chain_des_pos_dict[residue.chain_id].append(residue.resid)
+        
+        logger.debug(f'DesignSequence init definition:\n{sep}\ntied_residues: {str(self)}\nchains_to_design: {self.chains_to_design}\nchain_des_pos_dict: {self.chain_des_pos_dict}\n{sep}\n')
     
     def __iter__(self):
         return iter(self.tied_residues)
+    def __str__(self):
+        return '[' + ', '.join([str(tied_res) for tied_res in self]) + ']'
 
 class Chain(object):
     def __init__(self, chain_id, init_resid, fin_resid, internal_missing_res_list, full_seq):
@@ -101,6 +113,8 @@ class Chain(object):
         self.internal_missing_res_list= internal_missing_res_list
 
         self.full_seq= full_seq # should include all missing residues; do not need to agree with template seqs
+
+        logger.debug(f'Chain init definition:\n{sep}\nchain_id: {chain_id}\ninit_resid: {init_resid}, fin_resid: {fin_resid}\ninternal_missing_res_list: {internal_missing_res_list}\nfull_seq: {full_seq}\m{sep}\n')
 
 class Protein(object):
     def __init__(self, design_seq, chains_list, pdb_files_dir, protein_mpnn_helper_scripts_dir):
@@ -141,6 +155,7 @@ class Protein(object):
             resid= rep_res.resid
             res_ind= resid - self.chains_dict[chain_id].init_resid
             candidate.append(self.chains_dict[chain_id].full_seq[res_ind])
+        logger.debug(f'get_candidate() returned: {candidate}\n')
         return candidate
 
     def get_chain_full_seq(
@@ -175,7 +190,7 @@ class Protein(object):
             full_seq[internal_missing_res_mask]= None
 
         output_seq= ''.join(full_seq[full_seq != None])
-
+        logger.debug(f'get_chain_full_seq() returned the folllowing results:\n{sep}\nchain_id: {chain_id}\ncandidate: {candidate}\ndrop_terminal: {drop_terminal_missing_res}\ndrop_internal: {drop_internal_missing_res}\nreplace_missing: {replace_missing_residues_with}\noutput_seq: {output_seq}\n{sep}\n')
         return output_seq
 
     def parse_pdbs(self):
@@ -184,11 +199,13 @@ class Protein(object):
         _merge_pdb_files(pdbs_list, f'{combined_pdb_file_dir.name}/combined_pdb.pdb')
 
         out= tempfile.NamedTemporaryFile()
-        subprocess.run([
+        exec_str= [
             sys.executable, f'{self.helper_scripts_dir}/parse_multiple_chains.py',
             f'--input_path={combined_pdb_file_dir.name}',
             f'--output_path={out.name}'
-        ], stdout= subprocess.PIPE, stderr= subprocess.PIPE, check= False)
+        ]
+        proc= subprocess.run(exec_str, stdout= subprocess.PIPE, stderr= subprocess.PIPE, check= True)
+        logger.debug(f'parse_multiple_chains.py was called with the following command:\n{sep}\n{exec_str}\nstdout:{proc.stdout}\nstderr: {proc.stderr}\n{sep}\n')
 
         combined_pdb_file_dir.cleanup()
 
@@ -204,9 +221,7 @@ class Protein(object):
                 drop_internal_missing_res= False, 
                 replace_missing_residues_with= '-'
             )
-            #ori_seq= parsed_pdb_json[f'seq_chain_{chain_id}']
-            #print(f'chain {chain_id} parsed seq: {ori_seq}')
-            #print(f'chain {chain_id} changed seq: {chain_full_seq}')
+            logger.debug(f'parse_pdbs() chain {chain_id} sequence is updated:\n{sep}\nold_seq: {parsed_pdb_json[f"seq_chain_{chain_id}"]}\nnew_seq: {chain_full_seq}\n{sep}\n')
             parsed_pdb_json[f'seq_chain_{chain_id}']= chain_full_seq
         # update the full concatenated seq
         cumulative_seq= ''
@@ -214,6 +229,7 @@ class Protein(object):
             if 'seq_chain_' in key:
                 cumulative_seq+= parsed_pdb_json[key]
         parsed_pdb_json['seq']= cumulative_seq
+        logger.debug(f'parsed_pdbs() cumulative seq is updated:\n{sep}\nold_seq: {parsed_pdb_json["seq"]}\nnew_seq: {cumulative_seq}\n{sep}\n')
 
         with open(out.name, 'w') as f:
             json.dump(parsed_pdb_json, f)
@@ -225,12 +241,14 @@ class Protein(object):
         if self.parsed_pdb_json['json']['num_of_chains'] > len(self.chains_list):
             chains_to_design_str= ' '.join(self.design_seq.chains_to_design)
             out= tempfile.NamedTemporaryFile()
-            subprocess.run([
+            exec_str= [
                 sys.executable, f'{self.helper_scripts_dir}/assign_fixed_chains.py',
                 f'--input_path={self.parsed_pdb_handle.name}',
                 f'--output_path={out.name}',
                 f'--chain_list={chains_to_design_str}'
-            ], stdout= subprocess.PIPE, stderr= subprocess.PIPE, check= True)
+            ]
+            proc= subprocess.run(exec_str, stdout= subprocess.PIPE, stderr= subprocess.PIPE, check= True)
+            logger.debug(f'assign_fixed_chains.py was called with the following command:\n{sep}\n{exec_str}\nstdout:{proc.stdout}\nstderr: {proc.stderr}\n{sep}\n')
 
             with open(out.name, 'r') as f:
                 parsed_fixed_chains= json.load(f)
@@ -257,19 +275,22 @@ class Protein(object):
                 chains_str.append(chain_id)
         
         if len(chains_str) == 0:
+            logger.debug(f'make_fixed_positions_dict.py was not called.')
             return None
         else:
             fixed_pos_str= ', '.join(fixed_pos_str)
             chains_str= ' '.join(chains_str)
 
             out= tempfile.NamedTemporaryFile()
-            subprocess.run([
+            exec_str= [
                 sys.executable, f'{self.helper_scripts_dir}/make_fixed_positions_dict.py',
                 f'--input_path={self.parsed_pdb_handle.name}',
                 f'--output_path={out.name}',
                 f'--chain_list={chains_str}',
                 f'--position_list={fixed_pos_str}'
-            ], stdout= subprocess.PIPE, stderr= subprocess.PIPE, check= True)
+            ]
+            proc= subprocess.run(exec_str, stdout= subprocess.PIPE, stderr= subprocess.PIPE, check= True)
+            logger.debug(f'make_fixed_positions_dict.py was called with the following command:\n{sep}\n{exec_str}\nstdout:{proc.stdout}\nstderr: {proc.stderr}\n{sep}\n')
 
             with open(out.name, 'r') as f:
                 parsed_fixed_positions= json.load(f)
@@ -285,8 +306,9 @@ class Protein(object):
             tied_lists.append(tied_list)
 
         combined_tied_list= '{"' + 'combined_pdb' + '": [' + ', '.join(tied_lists) + ']}'
-
+        logger.debug(f'parse_tied_positions() returned the following results:\n{sep}\n{combined_tied_list}\n{sep}\n')
         parsed_tied_positions= json.loads(combined_tied_list)
+
         return {'json': parsed_tied_positions, 'exec_str': 'tied_positions_jsonl'}
     
     def parse_omit_AA(self):
@@ -303,7 +325,8 @@ class Protein(object):
         des_pos_arr= np.asarray(des_pos, dtype= int) - init_resid
         ca_coords_des= ca_coords[des_pos_arr]
         dist_mat= distance_matrix(ca_coords_des, ca_coords_des, p= 2)
-        
+        logger.debug(f'get_CA_dist_matrices() returned the following results:\n{sep}\n{dist_mat}\n{sep}\n')
+
         return dist_mat
 
     def dump_jsons(self):
@@ -327,6 +350,7 @@ class Protein(object):
                 with open(output_loc, 'w') as f:
                     json.dump(output['json'], f)
         
+        logger.debug(f'dump_jsons() returned the following exec_str:\n{sep}\n{exec_str}\n{sep}\n')
         return out_dir, exec_str
 
 class DesignedProtein(Protein):

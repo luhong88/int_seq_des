@@ -1315,7 +1315,7 @@ class ProteinMPNN(nn.Module):
 
 
     # L.H.
-    def tied_pareto_sample(self, X, randn, S_true, chain_mask, chain_encoding_all, residue_idx, mask=None, temperature=1.0, omit_AAs_np=None, bias_AAs_np=None, chain_M_pos=None, omit_AA_mask=None, pssm_coef=None, pssm_bias=None, pssm_multi=None, pssm_log_odds_flag=None, pssm_log_odds_mask=None, pssm_bias_flag=None, tied_pos=None, tied_beta=None, bias_by_res=None, detect_sym= False, corr_cutoff= 0.9, geometric_prob= 1.0, uniform_sampling= 0):
+    def tied_pareto_sample(self, X, randn, S_true, chain_mask, chain_encoding_all, residue_idx, mask=None, temperature=1.0, omit_AAs_np=None, bias_AAs_np=None, chain_M_pos=None, omit_AA_mask=None, pssm_coef=None, pssm_bias=None, pssm_multi=None, pssm_log_odds_flag=None, pssm_log_odds_mask=None, pssm_bias_flag=None, tied_pos=None, tied_beta=None, bias_by_res=None, detect_degeneracy= False, corr_cutoff= 0.9, geometric_prob= 1.0, uniform_sampling= False):
         device = X.device
         # Prepare node and edge embeddings
         E, E_idx = self.features(X, mask, residue_idx, chain_encoding_all)
@@ -1435,7 +1435,7 @@ class ProteinMPNN(nn.Module):
                 else:
                     for sample in range(N_batch):
                         # first check for degeneracy
-                        if detect_sym:
+                        if detect_degeneracy:
                             dissimilarity_mat= 1. - torch.corrcoef(probs[sample]).numpy() # need to copy to cpu, may be slow
                             dissimilarity_vec= squareform(dissimilarity_mat, checks= False, force= 'tovector')
                             hierarchy= linkage(dissimilarity_vec, method= 'single')
@@ -1467,7 +1467,7 @@ class ProteinMPNN(nn.Module):
                                 chosen_front= torch.tensor(0)
                             pareto_mask= pareto_rankings == chosen_front.item()
                             ave_probs_pareto_masked[sample][~pareto_mask]= 0.
-                            if uniform_sampling == 1:
+                            if uniform_sampling:
                                 ave_probs_pareto_masked[sample][pareto_mask]= 1.
                         S_t_repeat = torch.multinomial(ave_probs_pareto_masked, 1).squeeze(-1)
                     
