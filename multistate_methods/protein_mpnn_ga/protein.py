@@ -1,10 +1,10 @@
 import glob, sys, logging, subprocess, tempfile, json, numpy as np
-from scipy.spatial import distance_matrix
 from Bio.PDB import PDBParser, PDBIO
 
 logger= logging.getLogger(__name__)
+logger.propagate= False
+logger.setLevel(logging.DEBUG)
 c_handler= logging.StreamHandler()
-c_handler.setLevel(logging.DEBUG)
 c_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
 logger.addHandler(c_handler)
 sep= '-'*50
@@ -82,9 +82,10 @@ class TiedResidue(object):
         self.allowed_AA= alphabet
 
         chain_ids= [res.chain_id for res in residues]
-        chain_ids_unique= [*set(chain_ids)]
-        if len(chain_ids_unique) != len(chain_ids):
-            logger.warning(f'You are trying to tie together residues in the same chain; this has not been tested and may lead to unexpected behavior.')
+        self.chain_ids_unique= [*set(chain_ids)]
+
+        if len(self.chain_ids_unique) != len(chain_ids):
+            raise NotImplementedError(f'You are trying to tie together residues in the same chain; this feature is not implemented.')
 
         if omit_AA is not None:
             if not isinstance(omit_AA, str):
@@ -116,7 +117,7 @@ class DesignSequence(object):
                 self.chain_des_pos_dict[residue.chain_id].append(residue.resid)
         
         logger.debug(f'DesignSequence init definition:\n{sep}\ntied_residues: {str(self)}\nchains_to_design: {self.chains_to_design}\nchain_des_pos_dict: {self.chain_des_pos_dict}\n{sep}\n')
-    
+
     def __iter__(self):
         return iter(self.tied_residues)
     
@@ -124,6 +125,7 @@ class DesignSequence(object):
         return '[' + ', '.join([str(tied_res) for tied_res in self]) + ']'
 
 class Chain(object):
+    # designable chains are mandatory, non-designable chains are mandatory if scored by AF2Rank
     def __init__(self, chain_id, init_resid, fin_resid, internal_missing_res_list, full_seq):
         if not isinstance(chain_id, str):
             raise TypeError(f'chain_id {chain_id} is not a str.')
@@ -149,20 +151,39 @@ class Chain(object):
         logger.debug(f'Chain init definition:\n{sep}\nchain_id: {chain_id}\ninit_resid: {init_resid}, fin_resid: {fin_resid}\ninternal_missing_res_list: {internal_missing_res_list}\nfull_seq: {full_seq}\m{sep}\n')
 
 class Protein(object):
-    def __init__(self, design_seq, chains_list, pdb_files_dir, protein_mpnn_helper_scripts_dir):
+    def __init__(self, design_seq, chains_list, chains_neighbors_list, pdb_files_dir, protein_mpnn_helper_scripts_dir):
         '''
         Input structures must have the correct chain id
         It is okay to have gaps in the chains; resid 1-indexed
         
         '''
         self.design_seq= design_seq
+        
+        updated_chains_list= []
+        for chain in chains_list:
+            # check if the chain is designable
+            if chain.chain_id in self.design_seq.chains_to_design:
+                chain.is_designable= True
+            else:
+                chain.is_designable= False
+            logger.debug(f'chain {chain.chain_id} is marked with is_designable={chain.is_designable}')
+            # update the chains with neighbors list
+            neighbors= []
+            for neighbors_list in chains_neighbors_list:
+                if chain.chain_id in neighbors_list:
+                    neighbors+= neighbors_list
+            neighbors= [*set(neighbors)]
+            neighbors.sort()
+            chain.neighbors_list= neighbors
+            updated_chains_list.append(chain)
+            logger.debug(f'chain {chain.chain_id} updated with the following neighbors_list: {chain.neighbors_list}')
 
         # chains_list should only include designable chains
         # ensure that the chains are listed in alphabetical order
         # need python >=3.7 to ensure the dict remembers insertion order
-        chain_id_list= [chain.chain_id for chain in chains_list]
+        chain_id_list= [chain.chain_id for chain in updated_chains_list]
         chain_order= np.argsort(chain_id_list)
-        self.chains_list= [chains_list[ind] for ind in chain_order]
+        self.chains_list= [updated_chains_list[ind] for ind in chain_order]
         self.chains_dict= {chain.chain_id: chain for chain in self.chains_list}
 
         self.pdb_files_dir= pdb_files_dir
@@ -220,6 +241,37 @@ class Protein(object):
         output_seq= ''.join(full_seq[full_seq != None])
         logger.debug(f'get_chain_full_seq() returned the folllowing results:\n{sep}\nchain_id: {chain_id}\ncandidate: {candidate}\ndrop_terminal: {drop_terminal_missing_res}\ndrop_internal: {drop_internal_missing_res}\nreplace_missing: {replace_missing_residues_with}\noutput_seq: {output_seq}\n{sep}\n')
         return output_seq
+    
+    def candidate_to_chain_des_pos(self, candidate_des_pos_list, chain_id, drop_terminal_missing_res= False, drop_internal_missing_res= False):
+        '''
+        input candidate_des_pos_list is a 0-indexed list of indices for the candidate array elements
+        output chain_des_pos_list is a 0-indexed, list of indices for the corresponding residues in a given chain, conditioned on the inclusion/exclusion of missing residues
+        if a des_pos does not map onto the chain, the returned index is None
+        the function depends on the assumption that residues on the same chain cannot be tied together
+        '''
+        chain_des_pos_list= []
+        for des_pos in candidate_des_pos_list:
+            tied_res= self.tied_residues[des_pos]
+            if chain_id in tied_res.chain_ids_unique:
+                for res in tied_res:
+                    if res.chain_id == chain_id:
+                        resid= res.resid
+                        if drop_internal_missing_res:
+                            offset= sum(missing_resid < resid for missing_resid in self.chains_dict[chain_id].internal_missing_res_list)
+                            resid-= offset
+                        if drop_terminal_missing_res:
+                            init_resid= self.chains_dict[chain_id].init_resid
+                            resid-= init_resid # this automatically make resid 0-indexed
+                        else:
+                            resid-= 1 # make resid 0-indexed
+                        chain_des_pos_list.append(resid)
+            else:
+                chain_des_pos_list.append(None)
+
+        chain_des_pos_list.sort()
+
+        logger.debug(f'candidate_to_chain_des_pos() returned the following results:\n{sep}\ncandidate_des_pos_list: {candidate_des_pos_list}\nchain_id: {chain_id}; drop_terminal_missing_res: {drop_internal_missing_res}; drop_internal_missing_res: {drop_internal_missing_res}\nchain_des_pos_list: {chain_des_pos_list}\n{sep}\n')
+        return chain_des_pos_list
 
     def parse_pdbs(self):
         combined_pdb_file_dir= tempfile.TemporaryDirectory()
@@ -232,8 +284,10 @@ class Protein(object):
             f'--input_path={combined_pdb_file_dir.name}',
             f'--output_path={out.name}'
         ]
-        proc= subprocess.run(exec_str, stdout= subprocess.PIPE, stderr= subprocess.PIPE, check= True)
-        logger.debug(f'parse_multiple_chains.py was called with the following command:\n{sep}\n{exec_str}\nstdout:{proc.stdout}\nstderr: {proc.stderr}\n{sep}\n')
+        proc= subprocess.run(exec_str, stdout= subprocess.PIPE, stderr= subprocess.PIPE, check= False)
+        if proc.stderr:
+                raise RuntimeError(f'Command {proc.args} returned non-zero exist status {proc.returncode} with the stderr\n{proc.stderr.decode()}')
+        logger.debug(f'parse_multiple_chains.py was called with the following command:\n{sep}\n{exec_str}\nstdout:{proc.stdout.decode()}\nstderr: {proc.stderr.decode()}\n{sep}\n')
 
         combined_pdb_file_dir.cleanup()
 
@@ -241,6 +295,7 @@ class Protein(object):
             parsed_pdb_json= json.load(f)
 
         # correct any discrepancy between the sequence given by the chain objects vs. the sequence read in from the pdb files
+        # this will update both the designable and non-designed chains that are provided
         for chain_id in self.chains_dict.keys():
             old_full_seq= parsed_pdb_json[f'seq_chain_{chain_id}']
             new_full_seq= self.get_chain_full_seq(
@@ -271,8 +326,9 @@ class Protein(object):
         return {'json': parsed_pdb_json, 'exec_str': 'jsonl_path'}, out
     
     def parse_fixed_chains(self):
-        if self.parsed_pdb_json['json']['num_of_chains'] > len(self.chains_list):
-            chains_to_design_str= ' '.join(self.design_seq.chains_to_design)
+        chains_to_design= self.design_seq.chains_to_design
+        if self.parsed_pdb_json['json']['num_of_chains'] > len(chains_to_design):
+            chains_to_design_str= ' '.join(chains_to_design)
             out= tempfile.NamedTemporaryFile()
             exec_str= [
                 sys.executable, f'{self.helper_scripts_dir}/assign_fixed_chains.py',
@@ -280,8 +336,10 @@ class Protein(object):
                 f'--output_path={out.name}',
                 f'--chain_list={chains_to_design_str}'
             ]
-            proc= subprocess.run(exec_str, stdout= subprocess.PIPE, stderr= subprocess.PIPE, check= True)
-            logger.debug(f'assign_fixed_chains.py was called with the following command:\n{sep}\n{exec_str}\nstdout:{proc.stdout}\nstderr: {proc.stderr}\n{sep}\n')
+            proc= subprocess.run(exec_str, stdout= subprocess.PIPE, stderr= subprocess.PIPE, check= False)
+            if proc.stderr:
+                raise RuntimeError(f'Command {proc.args} returned non-zero exist status {proc.returncode} with the stderr\n{proc.stderr.decode()}')
+            logger.debug(f'assign_fixed_chains.py was called with the following command:\n{sep}\n{exec_str}\nstdout:{proc.stdout.decode()}\nstderr: {proc.stderr.decode()}\n{sep}\n')
 
             with open(out.name, 'r') as f:
                 parsed_fixed_chains= json.load(f)
@@ -301,7 +359,7 @@ class Protein(object):
             if fixed_pos.size == 0:
                 pass
             else:
-                fixed_pos_offset= fixed_pos - (init_resid - 1)
+                fixed_pos_offset= fixed_pos - (init_resid - 1) # - 1 because 1-index
                 fixed_pos_str.append(' '.join(map(str, fixed_pos_offset)))
                 chains_str.append(chain_id)
         
@@ -320,8 +378,10 @@ class Protein(object):
                 f'--chain_list={chains_str}',
                 f'--position_list={fixed_pos_str}'
             ]
-            proc= subprocess.run(exec_str, stdout= subprocess.PIPE, stderr= subprocess.PIPE, check= True)
-            logger.debug(f'make_fixed_positions_dict.py was called with the following command:\n{sep}\n{exec_str}\nstdout:{proc.stdout}\nstderr: {proc.stderr}\n{sep}\n')
+            proc= subprocess.run(exec_str, stdout= subprocess.PIPE, stderr= subprocess.PIPE, check= False)
+            if proc.stderr:
+                raise RuntimeError(f'Command {proc.args} returned non-zero exist status {proc.returncode} with the stderr\n{proc.stderr.decode()}')
+            logger.debug(f'make_fixed_positions_dict.py was called with the following command:\n{sep}\n{exec_str}\nstdout:{proc.stdout.decode()}\nstderr: {proc.stderr.decode()}\n{sep}\n')
 
             with open(out.name, 'r') as f:
                 parsed_fixed_positions= json.load(f)
@@ -344,20 +404,10 @@ class Protein(object):
     def parse_omit_AA(self):
         raise NotImplementedError()
 
-    def get_CA_dist_matrices(self, chain_id):
-        chain= self.chains_dict[chain_id]
-        
-        init_resid= chain.init_resid
-        des_pos= self.design_seq.chain_des_pos_dict[chain_id]
-        des_pos= np.sort(des_pos)
-
-        ca_coords= np.asarray(self.parsed_pdb_json['json'][f'coords_chain_{chain_id}'][f'CA_chain_{chain_id}'])
-        des_pos_arr= np.asarray(des_pos, dtype= int) - init_resid
-        ca_coords_des= ca_coords[des_pos_arr]
-        dist_mat= distance_matrix(ca_coords_des, ca_coords_des, p= 2)
-        logger.debug(f'get_CA_dist_matrices() returned the following results:\n{sep}\n{dist_mat}\n{sep}\n')
-
-        return dist_mat
+    def get_CA_coords(self, chain_id):
+        CA_coords= np.asarray(self.parsed_pdb_json['json'][f'coords_chain_{chain_id}'][f'CA_chain_{chain_id}'])
+        logger.debug(f'get_CA_coords() returned the following results:\n{sep}\nchain_id: {chain_id}\nCA_coords: {CA_coords}\n{sep}\n')
+        return CA_coords
 
     def dump_jsons(self):
         out_dir= tempfile.TemporaryDirectory()
