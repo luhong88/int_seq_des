@@ -61,8 +61,8 @@ class ObjectiveAF2Rank(object):
             for chain_id in self.chain_ids:
                 # by default, all missing residues are ignored, and multiple chains are concatenated as if there were only one continuous chain with no breaks
                 full_seq+= protein.get_chain_full_seq(chain_id, candidate, drop_terminal_missing_res= True, drop_internal_missing_res= True)
-                full_seqs.append(full_seq)
-
+            full_seqs.append(full_seq)
+        logger.debug(f'AF2Rank (device: {self.device}, name: {self.name}) called with the sequences:\n{sep}\n{full_seqs}\n{sep}\n')
         output= []
         if self.device == 'cpu':
             with jax.default_device(jax.devices('cpu')[0]):
@@ -81,7 +81,6 @@ class ObjectiveAF2Rank(object):
         logger.debug(f'AF2Rank (device: {self.device}, name: {self.name}) final output:\n{sep}\n{neg_output}\n{sep}\n')
 
         return neg_output
-
 
 class ObjectiveESM(object):
     '''

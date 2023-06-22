@@ -148,7 +148,7 @@ class Chain(object):
 
         self.full_seq= full_seq # should include all missing residues; do not need to agree with template seqs
 
-        logger.debug(f'Chain init definition:\n{sep}\nchain_id: {chain_id}\ninit_resid: {init_resid}, fin_resid: {fin_resid}\ninternal_missing_res_list: {internal_missing_res_list}\nfull_seq: {full_seq}\m{sep}\n')
+        logger.debug(f'Chain init definition:\n{sep}\nchain_id: {chain_id}\ninit_resid: {init_resid}, fin_resid: {fin_resid}\ninternal_missing_res_list: {internal_missing_res_list}\nfull_seq: {full_seq}\n{sep}\n')
 
 class Protein(object):
     def __init__(self, design_seq, chains_list, chains_neighbors_list, pdb_files_dir, protein_mpnn_helper_scripts_dir):
@@ -308,7 +308,9 @@ class Protein(object):
             )
 
             if old_full_seq != new_full_seq:
-                logger.warning(f'The chain {chain_id} sequence parsed from the pdb file ({old_full_seq} is not the same as that parsed from the inputs (new_full_seq))')
+                if len(old_full_seq) != len(new_full_seq):
+                    raise IndexError(f'The chain {chain_id} sequence parsed from the pdb file does not have the same length as that parsed from the inputs (after removing terminal missing residues):\n\{sep}\npdb_seq: {old_full_seq}\nparsed_seq: {new_full_seq})\n{sep}\n')
+                logger.warning(f'The chain {chain_id} sequence parsed from the pdb file ({old_full_seq} is not the same as that parsed from the inputs ({new_full_seq}))')
             logger.debug(f'parse_pdbs() chain {chain_id} sequence is updated:\n{sep}\nold_seq: {old_full_seq}\nnew_seq: {new_full_seq}\n{sep}\n')
             
             parsed_pdb_json[f'seq_chain_{chain_id}']= new_full_seq
@@ -427,9 +429,9 @@ class Protein(object):
                     json.dump(output['json'], f)
                     exec_str+= ['--' + output['exec_str'], output_loc]
                 #debug
-                output_loc= f'./{output["exec_str"]}.json'
-                with open(output_loc, 'w') as f:
-                    json.dump(output['json'], f)
+                #output_loc= f'./{output["exec_str"]}.json'
+                #with open(output_loc, 'w') as f:
+                #    json.dump(output['json'], f)
         
         logger.debug(f'dump_jsons() returned the following exec_str:\n{sep}\n{exec_str}\n{sep}\n')
         return out_dir, exec_str
