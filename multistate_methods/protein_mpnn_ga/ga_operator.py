@@ -85,14 +85,19 @@ class MutationMethod(object):
             # allowed_pos_list is a list of indices of elements in the candidate array
             # by default, allow all designable positions to be redesigned
             allowed_pos_list= np.arange(protein.design_seq.n_des_res)
-        return self.choose_AA(candidate, protein, self.choose_pos(candidate, protein, allowed_pos_list))
+
+        proposed_des_pos_list= self.choose_pos(candidate, protein, allowed_pos_list)
+        if len(proposed_des_pos_list) == 0:
+            logger.warning(f'proposed_des_pos_list returned an empty list using MutationMethod {str(self)}; consider increasing the mutation rate or the number of designable positions. A random position will be chosen from the allowed_pos_list for mutation.')
+            proposed_des_pos_list= rng.choice(allowed_pos_list, size= 1)
+        return self.choose_AA(candidate, protein, proposed_des_pos_list)
 
     def _random_sampling(self, allowed_pos_list, mutation_rate):
         des_pos_list= []
         for pos in allowed_pos_list:
             if rng.random() < mutation_rate:
                 des_pos_list.append(pos)
-        logger.debug(f'_random_sampling() returned the following des_pos_list:\n{sep}\n{des_pos_list}\n{sep}\n')
+        logger.debug(f'_random_sampling() returned the following des_pos_list:\n{sep}\nallowed_pos_list:{allowed_pos_list}\ndes_pos_list: {des_pos_list}\n{sep}\n')
         return des_pos_list
     
     def _spatially_coupled_sampling(self, protein, chain_id, allowed_pos_list, hotspot_allowed_des_pos_ranked_list, mutation_rate, sigma):
@@ -101,7 +106,11 @@ class MutationMethod(object):
         this function is complicated because each allowed position corresponds to multiple physical residues, but we want to know the shortest possible distances between each pairs of allowed positions
         '''
         CA_coords_df= {}
-        chain_ids= protein.chains_dict[chain_id].neighbors_list
+        neighbor_chain_ids= protein.chains_dict[chain_id].neighbors_list
+        designable_chain_ids= protein.design_seq.chains_to_design
+        chain_ids= list(set(neighbor_chain_ids) & set(designable_chain_ids)) # find the interaction of the two lists
+        chain_ids.sort()
+
         for id in chain_ids:
             CA_coords= protein.get_CA_coords(id)
             chain_allowed_pos_list= protein.candidate_to_chain_des_pos(
@@ -165,7 +174,10 @@ class MutationMethod(object):
                 esm_scores_des_pos.append(esm_scores[des_pos])
         # sort in ascending order for the ESM log likelihood scores (i.e., worst to best)
         # np.argsort() will will put the np.nan positions at the end of the list, which is then removed through slicing
-        esm_scores_des_pos_argsort= np.argsort(esm_scores_des_pos)[:-sum(np.isnan(esm_scores_des_pos))]
+        esm_scores_des_pos_argsort= np.argsort(esm_scores_des_pos)
+        n_nan= sum(np.isnan(esm_scores_des_pos))
+        if n_nan > 0:
+            esm_scores_des_pos_argsort= esm_scores_des_pos_argsort[:-n_nan]
 
         esm_des_pos_rank= np.asarray(allowed_pos_list)[esm_scores_des_pos_argsort]
 
@@ -226,7 +238,7 @@ class ProteinSampling(Sampling):
         method= MutationMethod(
             choose_pos_method= 'random',
             choose_AA_method= 'random',
-            mutation_rate= 0.05,
+            mutation_rate= 0.1,
             prob= 1.0
         )
         WT_candidate= problem.protein.get_candidate()

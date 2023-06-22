@@ -268,6 +268,9 @@ class Protein(object):
                         chain_des_pos_list.append(resid)
             else:
                 chain_des_pos_list.append(None)
+        
+        if all(des_pos is None for des_pos in chain_des_pos_list):
+            raise RuntimeError(f'chain_des_pos_list returns None only for chain {chain_id}. Are you sure the chain has any designable positions?')
 
         chain_des_pos_list.sort()
 
@@ -438,6 +441,9 @@ class Protein(object):
 
 class DesignedProtein(Protein):
     def __init__(self, wt_protein, base_candidate, proposed_des_pos_list):
+        if len(proposed_des_pos_list) == 0:
+            raise RuntimeError(f'The proposed_des_pos_list for DesignedProtein is empty!')
+
         # update chain full_seq based on candidate
         if base_candidate is None:
             new_chains_list= wt_protein.chains_list.copy()

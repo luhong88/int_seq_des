@@ -143,6 +143,18 @@ class ObjectiveESM(object):
             logger.debug(f'ESM (device: {self.device}, name= {self.name}) apply() returned the following results:\n{sep}\n{neg_output_arr}\n{sep}\n')
 
             return neg_output_arr
+
+class ObjectiveDebug(object):
+    def __init__(self):
+        self.name= 'debug'
+
+    def __str__(self):
+        return self.name
+
+    def apply(self, candidates, protein):
+        results= np.random.rand(len(candidates))
+        logger.debug(f'{str(self)} objective returned the following results:\n{sep}\n{results}\n{sep}\n')
+        return results
     
 class ProteinMPNNWrapper(object):
     def __init__(
