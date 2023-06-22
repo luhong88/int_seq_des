@@ -121,12 +121,17 @@ class MutationMethod(object):
         logger.debug(f'_spatially_coupled_sampling() returned the following CA_coords_df:\n{sep}\n{CA_coords_df}\n{sep}\n')
         
         all_chain_pairwise_dist_mat= []
-        for chain_pair in itertools.combinations(chain_ids, 2):
-            chain_A, chain_B= chain_pair
-            dist_mat= distance_matrix(CA_coords_df[chain_A], CA_coords_df[chain_B], p= 2)
-            all_chain_pairwise_dist_mat.append(dist_mat)
-        min_dist_mat= np.nanmin(all_chain_pairwise_dist_mat, axis= 0) # find the shortest possible distance between each tied_position
-        logger.debug(f'_spatially_coupled_sampling() returned the following min_dist_mat:\n{sep}\n{min_dist_mat}\n{sep}\n')
+        if len(chain_ids) == 1:
+            # if the chosen chain has no neighbors other than itself
+            min_dist_mat= distance_matrix(CA_coords_df[chain_id], CA_coords_df[chain_id], p= 2)
+            logger.debug(f'_spatially_coupled_sampling() returned the following min_dist_mat:\n{sep}\n{min_dist_mat}\n{sep}\n')
+        else:
+            for chain_pair in itertools.combinations(chain_ids, 2):
+                chain_A, chain_B= chain_pair
+                dist_mat= distance_matrix(CA_coords_df[chain_A], CA_coords_df[chain_B], p= 2)
+                all_chain_pairwise_dist_mat.append(dist_mat)
+            min_dist_mat= np.nanmin(all_chain_pairwise_dist_mat, axis= 0) # find the shortest possible distance between each tied_position
+            logger.debug(f'_spatially_coupled_sampling() returned the following min_dist_mat:\n{sep}\n{min_dist_mat}\n{sep}\n')
         min_dist_kernel_df= pd.DataFrame(np.exp(-min_dist_mat**2/sigma**2), columns= allowed_pos_list, index= allowed_pos_list)
         logger.debug(f'_spatially_coupled_sampling() returned the following min_dist_kernel_df:\n{sep}\n{min_dist_kernel_df}\n{sep}\n')
 
@@ -151,7 +156,7 @@ class MutationMethod(object):
         chain_id= objective_esm.chain_id
 
         esm_scores= np.squeeze(objective_esm.apply([candidate], protein, position_wise= True))
-        chain_des_pos= protein.design_seq.candidate_to_chain_des_pos(allowed_pos_list, chain_id, drop_terminal_missing_res= False, drop_internal_missing_res= False)
+        chain_des_pos= protein.candidate_to_chain_des_pos(allowed_pos_list, chain_id, drop_terminal_missing_res= False, drop_internal_missing_res= False)
         esm_scores_des_pos= []
         for des_pos in chain_des_pos:
             if des_pos is None:

@@ -251,7 +251,7 @@ class Protein(object):
         '''
         chain_des_pos_list= []
         for des_pos in candidate_des_pos_list:
-            tied_res= self.tied_residues[des_pos]
+            tied_res= self.design_seq.tied_residues[des_pos]
             if chain_id in tied_res.chain_ids_unique:
                 for res in tied_res:
                     if res.chain_id == chain_id:
