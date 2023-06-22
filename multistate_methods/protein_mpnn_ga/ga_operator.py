@@ -99,7 +99,7 @@ class MutationMethod(object):
         if self.rng is None:
             self.rng= rng
         else:
-            raise RuntimeError(f'The rng generator for MutationMethod {str(self)} is already set.')
+            raise RuntimeError(f'The numpy rng generator for MutationMethod {str(self)} is already set.')
 
     def apply(self, candidate, protein, allowed_pos_list= None):
         if allowed_pos_list is None:
@@ -263,29 +263,30 @@ class MutationMethod(object):
         return new_chain
 
 class ProteinMutation(Mutation):
-    def __init__(self, method_list, seed, comm= None, **kwargs):
+    def __init__(self, method_list, root_seed, comm= None, **kwargs):
         super().__init__(prob=1.0, prob_var=None, **kwargs)
 
         self.method_list= method_list
         self.comm= comm
-        self.class_seed= 35067127485832228718352093
+        self.class_seed= 350671
         
         if self.comm is None:
-            self.rng= np.random.default_rng([self.class_seed, seed])
+            self.rng= np.random.default_rng([self.class_seed, root_seed])
+            self.rank= None
         else:
-            self.rng= np.random.default_rng([self.class_seed, self.rank, seed])
             self.rank= self.comm.Get_rank()
             self.size= self.comm.Get_size()
+            self.rng= np.random.default_rng([self.class_seed, self.rank, root_seed])
 
         for method_ind, method in enumerate(self.method_list):
-            method.set_rng(np.random.default_rng([self.class_seed, self.rank, method_ind, seed]))
+            method.set_rng(np.random.default_rng([self.class_seed, self.rank if self.rank is not None else 0, method_ind, root_seed]))
 
     def _do(self, problem, candidates, **kwargs):
         Xp= []
         if self.comm is None:
             for candidate in candidates:
                 chosen_method= self.rng.choice(self.method_list, p= [method.prob for method in self.method_list])
-                proposed_candidate= chosen_method.apply(candidate, problem.protein, self.rng)
+                proposed_candidate= chosen_method.apply(candidate, problem.protein)
                 Xp.append(proposed_candidate)
                 logger.debug(f'ProteinMutation returned the following results:\n{sep}\nold_candidate: {candidate}\nchosen_method: {str(chosen_method)}\nnew_candidate: {proposed_candidate}\n{sep}\n')
             return np.asarray(Xp)
@@ -293,29 +294,30 @@ class ProteinMutation(Mutation):
             candidates_subset= _get_array_chunk(candidates, self.rank, self.size)
             chosen_method= self.rng.choice(self.method_list, p= [method.prob for method in self.method_list])
             for candidate in candidates_subset:
-                proposed_candidate= chosen_method.apply(candidate, problem.protein, self.rng)
+                proposed_candidate= chosen_method.apply(candidate, problem.protein)
                 Xp.append(proposed_candidate)
                 logger.debug(f'ProteinMutation (rank {self.rank}/{self.size}) returned the following results:\n{sep}\nold_candidate: {candidate}\nchosen_method: {str(chosen_method)}\nnew_candidate: {proposed_candidate}\n{sep}\n')
             
             Xp= self.comm.gather(Xp, root= 0)
+            if self.rank == 0: Xp= np.vstack(Xp)
             Xp= self.comm.bcast(Xp, root= 0)
             logger.debug(f'ProteinMutation (rank {self.rank}/{self.size}) received the following broadcasted Xp:\n{sep}\n{Xp}\n{sep}\n')
             
-            return np.asarray(Xp)
+            return Xp
 
 class ProteinSampling(Sampling):
-    def __init__(self, seed, comm= None):
-        super().__init_()
+    def __init__(self, root_seed, comm= None):
+        super().__init__()
 
         self.comm= comm
-        self.class_seed= 50112996148903046399
+        self.class_seed= 501129
 
         if self.comm is None:
-            self.rng= np.random.default_rng([self.class_seed, seed])
+            self.rng= np.random.default_rng([self.class_seed, root_seed])
         else:
-            self.rng= np.random.default_rng([self.class_seed, self.rank, seed])
             self.rank= self.comm.Get_rank()
             self.size= self.comm.Get_size()
+            self.rng= np.random.default_rng([self.class_seed, self.rank, root_seed])
 
     def _do(self, problem, n_samples, **kwargs):
         if problem.comm == None:
@@ -341,6 +343,9 @@ class ProteinSampling(Sampling):
                 method.set_rng(self.rng)
                 WT_candidate= problem.protein.get_candidate()
                 proposed_candidates= np.array([method.apply(WT_candidate, problem.protein) for _ in range(n_samples)])
+            else:
+                WT_candidate= problem.protein.get_candidate()
+                proposed_candidates= None
 
             proposed_candidates= self.comm.bcast(proposed_candidates, root= 0)
             logger.debug(f'ProteinSampling (rank {self.rank}/{self.size}) returned the following broadcasted results:\n{sep}\nold_candidate: {WT_candidate}\nnew_candidates: {proposed_candidates}\n{sep}\n')
@@ -348,12 +353,11 @@ class ProteinSampling(Sampling):
 
 class MultistateSeqDesignProblem(Problem):
     def __init__(self, protein, protein_mpnn_wrapper, metrics_list, comm= None, **kwargs):
-        super().__init__(n_var= protein.design_seq.n_des_res, n_obj= len(self.metrics_list), n_ieq_constr= 0, xl= None, xu= None, **kwargs)
-
         self.protein= protein
         self.protein_mpnn= protein_mpnn_wrapper
         self.metrics_list= metrics_list
         self.comm= comm
+        super().__init__(n_var= protein.design_seq.n_des_res, n_obj= len(self.metrics_list), n_ieq_constr= 0, xl= None, xu= None, **kwargs)
 
         if self.comm is not None:
             self.rank= self.comm.Get_rank()
@@ -368,12 +372,12 @@ class MultistateSeqDesignProblem(Problem):
             out['F'] = scores
         else:
             candidates_subset= _get_array_chunk(candidates, self.rank, self.size)
+            logger.debug(f'scores (rank {self.rank}) get the candidates_subset {candidates_subset} from the full candidates {candidates}')
             for metric in self.metrics_list:
                 scores.append(metric.apply(candidates_subset, self.protein))
             scores= np.vstack(scores).T # reshape scores from (n_metric, n_candidate) to (n_candidate, n_metric)
-
             scores= self.comm.gather(scores, root= 0)
-            scores= np.vstack(scores)
+            if self.rank == 0: scores= np.vstack(scores)
             scores= self.comm.bcast(scores, root= 0)
             logger.debug(f'MultistateSeqDesignProblem (rank {self.rank}/{self.size}) received the following broadcasted scores:\n{sep}\n{scores}\n{sep}\n')
 
