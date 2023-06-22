@@ -1,30 +1,12 @@
-import itertools, logging, numpy as np, pandas as pd
+import itertools, numpy as np, pandas as pd
 from scipy.spatial import distance_matrix
+
 from multistate_methods.protein_mpnn_ga.wrapper import ObjectiveESM
+from multistate_methods.protein_mpnn_ga.utils import logger, sep, get_array_chunk
 from pymoo.core.mutation import Mutation
 from pymoo.core.sampling import Sampling
 from pymoo.core.problem import Problem
 from pymoo.core.callback import Callback
-
-logger= logging.getLogger(__name__)
-logger.propagate= False
-logger.setLevel(logging.DEBUG)
-c_handler= logging.StreamHandler()
-c_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-logger.addHandler(c_handler)
-sep= '-'*50
-
-def _get_array_chunk(arr, rank, size):
-    chunk_size= len(arr)/size
-    if not chunk_size.is_integer():
-        raise ValueError(f'It is not possible to evenly divide an array of length {len(arr)} into {size + 1} processes.')
-    else:
-        chunk_size= int(chunk_size)
-        
-    if rank < size - 1:
-        return arr[rank*chunk_size:(rank + 1)*chunk_size]
-    else:
-        return arr[rank*chunk_size:]
 
 # TODO: get RNG to work with MPI properly
 #rng= np.random.default_rng()
@@ -291,7 +273,7 @@ class ProteinMutation(Mutation):
                 logger.debug(f'ProteinMutation returned the following results:\n{sep}\nold_candidate: {candidate}\nchosen_method: {str(chosen_method)}\nnew_candidate: {proposed_candidate}\n{sep}\n')
             return np.asarray(Xp)
         else:
-            candidates_subset= _get_array_chunk(candidates, self.rank, self.size)
+            candidates_subset= get_array_chunk(candidates, self.rank, self.size)
             chosen_method= self.rng.choice(self.method_list, p= [method.prob for method in self.method_list])
             for candidate in candidates_subset:
                 proposed_candidate= chosen_method.apply(candidate, problem.protein)
@@ -371,7 +353,7 @@ class MultistateSeqDesignProblem(Problem):
             scores= np.vstack(scores).T
             out['F'] = scores
         else:
-            candidates_subset= _get_array_chunk(candidates, self.rank, self.size)
+            candidates_subset= get_array_chunk(candidates, self.rank, self.size)
             logger.debug(f'scores (rank {self.rank}) get the candidates_subset {candidates_subset} from the full candidates {candidates}')
             for metric in self.metrics_list:
                 scores.append(metric.apply(candidates_subset, self.protein))

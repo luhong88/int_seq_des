@@ -1,13 +1,6 @@
-import glob, sys, logging, subprocess, tempfile, json, numpy as np
+import glob, sys, subprocess, tempfile, json, numpy as np
 from Bio.PDB import PDBParser, PDBIO
-
-logger= logging.getLogger(__name__)
-logger.propagate= False
-logger.setLevel(logging.DEBUG)
-c_handler= logging.StreamHandler()
-c_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-logger.addHandler(c_handler)
-sep= '-'*50
+from multistate_methods.protein_mpnn_ga.utils import logger, sep
 
 alphabet = 'ACDEFGHIKLMNPQRSTVWY'
 
