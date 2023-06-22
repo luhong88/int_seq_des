@@ -158,6 +158,7 @@ class Protein(object):
         
         '''
         self.design_seq= design_seq
+        self.chains_neighbors_list= chains_neighbors_list
         
         updated_chains_list= []
         for chain in chains_list:
@@ -169,7 +170,7 @@ class Protein(object):
             logger.debug(f'chain {chain.chain_id} is marked with is_designable={chain.is_designable}')
             # update the chains with neighbors list
             neighbors= []
-            for neighbors_list in chains_neighbors_list:
+            for neighbors_list in self.chains_neighbors_list:
                 if chain.chain_id in neighbors_list:
                     neighbors+= neighbors_list
             neighbors= [*set(neighbors)]
@@ -453,6 +454,11 @@ class DesignedProtein(Protein):
         
         # update design_seq based on proposed_des_pos_list
         new_design_seq= DesignSequence(*[wt_protein.design_seq.tied_residues[des_pos] for des_pos in proposed_des_pos_list])
-
-        super().__init__(new_design_seq, new_chains_list, wt_protein.pdb_files_dir, wt_protein.helper_scripts_dir)
+        super().__init__(
+            new_design_seq,
+            new_chains_list,
+            wt_protein.chains_neighbors_list,
+            wt_protein.pdb_files_dir,
+            wt_protein.helper_scripts_dir
+        )
     

@@ -108,7 +108,7 @@ class MutationMethod(object):
                 candidate_des_pos_list= allowed_pos_list,
                 chain_id= id,
                 drop_terminal_missing_res= True,
-                drop_internal_missing_res= True
+                drop_internal_missing_res= False
             )
             CA_coords_subset= {}
             for chain_pos, candidate_pos in zip(chain_allowed_pos_list, allowed_pos_list):
@@ -123,12 +123,12 @@ class MutationMethod(object):
         all_chain_pairwise_dist_mat= []
         if len(chain_ids) == 1:
             # if the chosen chain has no neighbors other than itself
-            min_dist_mat= distance_matrix(CA_coords_df[chain_id], CA_coords_df[chain_id], p= 2)
+            min_dist_mat= distance_matrix(*[np.vstack(CA_coords_df[chain_id])]*2, p= 2)
             logger.debug(f'_spatially_coupled_sampling() returned the following min_dist_mat:\n{sep}\n{min_dist_mat}\n{sep}\n')
         else:
             for chain_pair in itertools.combinations(chain_ids, 2):
                 chain_A, chain_B= chain_pair
-                dist_mat= distance_matrix(CA_coords_df[chain_A], CA_coords_df[chain_B], p= 2)
+                dist_mat= distance_matrix(np.vstack(CA_coords_df[chain_A]), np.vstack(CA_coords_df[chain_B]), p= 2)
                 all_chain_pairwise_dist_mat.append(dist_mat)
             min_dist_mat= np.nanmin(all_chain_pairwise_dist_mat, axis= 0) # find the shortest possible distance between each tied_position
             logger.debug(f'_spatially_coupled_sampling() returned the following min_dist_mat:\n{sep}\n{min_dist_mat}\n{sep}\n')
