@@ -205,8 +205,7 @@ class Protein(object):
             rep_res= tied_res.residues[0]
             chain_id= rep_res.chain_id
             resid= rep_res.resid
-            res_ind= resid - self.chains_dict[chain_id].init_resid
-            candidate.append(self.chains_dict[chain_id].full_seq[res_ind])
+            candidate.append(self.chains_dict[chain_id].full_seq[resid - 1]) # for full seq with no missing residue, only need to convert from 1-index to 0-index
         logger.debug(f'get_candidate() returned: {candidate}\n')
         return candidate
 
@@ -226,7 +225,8 @@ class Protein(object):
             for tied_res, candidate_AA in zip(self.design_seq.tied_residues, candidate):
                 for res in tied_res.residues:
                     if res.chain_id == chain_id:
-                        full_seq[res.resid - init_resid]= candidate_AA
+                        #full_seq[res.resid - init_resid]= candidate_AA
+                        full_seq[res.resid - 1]= candidate_AA
         
         resid_arr= np.arange(len(full_seq)) + 1
         terminal_missing_res_mask= (resid_arr < init_resid) | (resid_arr > fin_resid)
@@ -258,7 +258,10 @@ class Protein(object):
                     if res.chain_id == chain_id:
                         resid= res.resid
                         if drop_internal_missing_res:
-                            offset= sum(missing_resid < resid for missing_resid in self.chains_dict[chain_id].internal_missing_res_list)
+                            missing_list= self.chains_dict[chain_id].internal_missing_res_list
+                            if resid in missing_list:
+                                raise ValueError(f'Designable residue {resid} in chain {chain_id} is on the internal_missing_res_list of that chain, which should not be possible.')
+                            offset= sum(missing_resid < resid for missing_resid in missing_list)
                             resid-= offset
                         if drop_terminal_missing_res:
                             init_resid= self.chains_dict[chain_id].init_resid
@@ -365,7 +368,7 @@ class Protein(object):
             if fixed_pos.size == 0:
                 pass
             else:
-                fixed_pos_offset= fixed_pos - (init_resid - 1) # - 1 because 1-index
+                fixed_pos_offset= fixed_pos - (init_resid - 1) # - 1 because we want the result to be in 1-index
                 fixed_pos_str.append(' '.join(map(str, fixed_pos_offset)))
                 chains_str.append(chain_id)
         

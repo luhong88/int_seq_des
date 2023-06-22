@@ -217,7 +217,7 @@ class ProteinMPNNWrapper(object):
             rep_res= tied_res.residues[0]
             chain_id= rep_res.chain_id
             resid= rep_res.resid
-            res_ind= resid - self.protein.chains_dict[chain_id].init_resid
+            res_ind= resid - self.protein.chains_dict[chain_id].init_resid # the offset here is due to ProteinMPNN not having the missing terminal res
             AA_locator.append([chain_id, res_ind])
 
         seq_list= []
