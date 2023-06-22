@@ -192,6 +192,7 @@ class ProteinMPNNWrapper(object):
                 raise ValueError('Invalid method definition.')
             
             designed_protein= DesignedProtein(self.protein, base_candidate, proposed_des_pos_list)
+
             out_dir, file_loc_exec_str= designed_protein.dump_jsons()
 
             exec_str= self.exec_str + file_loc_exec_str + ['--num_seq_per_target', str(num_seqs), '--batch_size', str(batch_size)]
@@ -208,9 +209,9 @@ class ProteinMPNNWrapper(object):
 
             out_dir.cleanup()
 
-            return records
+            return records, designed_protein.design_seq.chains_to_design
     
-    def design_seqs_to_candidates(self, fa_records):
+    def design_seqs_to_candidates(self, fa_records, candidate_chains_to_design, base_candidate):
         AA_locator= []
         for tied_res in self.protein.design_seq.tied_residues:
             # use the first residue in a tied_residue as the representative
@@ -223,22 +224,25 @@ class ProteinMPNNWrapper(object):
         seq_list= []
         for fa in fa_records:
             name, seq = fa.id, str(fa.seq)
-            seq_dict= dict(zip(self.protein.design_seq.chains_to_design, seq.split('/'))) # ProteinMPNN only output sequences of the designable chains
+            seq_dict= dict(zip(candidate_chains_to_design, seq.split('/'))) # ProteinMPNN only output sequences of the designable chains
             seq_list.append(seq_dict)
         
         candidates= []
         # skip the first element in seq_list, since ProteinMPNN will always output the input sequence as the first output
         for seq in seq_list[1:]:
-            candidate= [seq[chain_id][res_ind] for chain_id, res_ind in AA_locator]
+            candidate= base_candidate.copy()
+            for candidate_ind, (chain_id, res_ind) in enumerate(AA_locator):
+                if chain_id in candidate_chains_to_design:
+                    candidate[candidate_ind]= seq[chain_id][res_ind]
             candidates.append(candidate)
-            logger.debug(f'ProteinMPNN design_seqs_to_candidates() input:\n{sep}\n{seq}\n{sep}\noutput:\n{sep}\n{candidates}\n{sep}\n')
+        logger.debug(f'ProteinMPNN design_seqs_to_candidates() input:\n{sep}\n{seq_list[1:]}\n{sep}\noutput:\n{sep}\n{candidates}\n{sep}\n')
         candidates= np.asarray(candidates)
 
         return candidates
     
     def design_and_decode_to_candidates(self, method, base_candidate, proposed_des_pos_list, num_seqs, batch_size, seed= None):
-        fa_records= self.design(method, base_candidate, proposed_des_pos_list, num_seqs, batch_size, seed)
-        candidates= self.design_seqs_to_candidates(fa_records)
+        fa_records, candidate_chains_to_design= self.design(method, base_candidate, proposed_des_pos_list, num_seqs, batch_size, seed)
+        candidates= self.design_seqs_to_candidates(fa_records, candidate_chains_to_design, base_candidate)
         return candidates
 
     def score(self):

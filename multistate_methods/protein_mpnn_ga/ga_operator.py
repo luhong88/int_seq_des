@@ -17,6 +17,7 @@ sep= '-'*50
 rng= np.random.default_rng()
 
 class MutationMethod(object):
+    # TODO: check the rate of n-point crossover
     # all private methods are written to handle a single candidate at each call
     def __init__(
             self, choose_pos_method, choose_AA_method, prob,
@@ -85,18 +86,22 @@ class MutationMethod(object):
             # allowed_pos_list is a list of indices of elements in the candidate array
             # by default, allow all designable positions to be redesigned
             allowed_pos_list= np.arange(protein.design_seq.n_des_res)
+        
+        if len(allowed_pos_list) == 0:
+            raise ValueError(f'allowed_pos_list for MutationMethod ({str(self)}) is empty.')
 
-        proposed_des_pos_list= self.choose_pos(candidate, protein, allowed_pos_list)
-        if len(proposed_des_pos_list) == 0:
-            logger.warning(f'proposed_des_pos_list returned an empty list using MutationMethod {str(self)}; consider increasing the mutation rate or the number of designable positions. A random position will be chosen from the allowed_pos_list for mutation.')
-            proposed_des_pos_list= rng.choice(allowed_pos_list, size= 1)
-        return self.choose_AA(candidate, protein, proposed_des_pos_list)
+        return self.choose_AA(candidate, protein, self.choose_pos(candidate, protein, allowed_pos_list))
 
     def _random_sampling(self, allowed_pos_list, mutation_rate):
         des_pos_list= []
         for pos in allowed_pos_list:
             if rng.random() < mutation_rate:
                 des_pos_list.append(pos)
+
+        if len(des_pos_list) == 0:
+            logger.warning(f'_random_sampling() des_pos_list returned an empty list; consider increasing the mutation rate or the number of designable positions. A random position will be chosen from the allowed_pos_list for mutation.')
+            des_pos_list= rng.choice(allowed_pos_list, size= 1)
+
         logger.debug(f'_random_sampling() returned the following des_pos_list:\n{sep}\nallowed_pos_list:{allowed_pos_list}\ndes_pos_list: {des_pos_list}\n{sep}\n')
         return des_pos_list
     
@@ -121,7 +126,9 @@ class MutationMethod(object):
             )
             CA_coords_subset= {}
             for chain_pos, candidate_pos in zip(chain_allowed_pos_list, allowed_pos_list):
-                if chain_pos is not None:
+                if chain_pos is None:
+                    CA_coords_subset[candidate_pos]= [np.nan]*3
+                else:
                     CA_coords_subset[candidate_pos]= CA_coords[chain_pos]
             CA_coords_subset= pd.Series(CA_coords_subset)
 
@@ -129,35 +136,51 @@ class MutationMethod(object):
         CA_coords_df= pd.DataFrame(CA_coords_df) # each column is a chain, each row is a tied_position, and each element is a CA position
         logger.debug(f'_spatially_coupled_sampling() returned the following CA_coords_df:\n{sep}\n{CA_coords_df}\n{sep}\n')
         
-        all_chain_pairwise_dist_mat= []
         if len(chain_ids) == 1:
-            # if the chosen chain has no neighbors other than itself
-            min_dist_mat= distance_matrix(*[np.vstack(CA_coords_df[chain_id])]*2, p= 2)
-            logger.debug(f'_spatially_coupled_sampling() returned the following min_dist_mat:\n{sep}\n{min_dist_mat}\n{sep}\n')
+            # if the chosen chain has no neighbors other than itself, then compute pairwise dist within the chain
+            min_all_pairwise_dist_mat= distance_matrix(*[np.vstack(CA_coords_df[chain_id])]*2, p= 2)
+            logger.debug(f'_spatially_coupled_sampling() returned the following min_all_pairwise_dist_mat:\n{sep}\n{min_all_pairwise_dist_mat}\n{sep}\n')
         else:
-            for chain_pair in itertools.combinations(chain_ids, 2):
+            all_pairwise_dist_mat= []
+            for chain_pair in itertools.combinations_with_replacement(chain_ids, 2):
                 chain_A, chain_B= chain_pair
                 dist_mat= distance_matrix(np.vstack(CA_coords_df[chain_A]), np.vstack(CA_coords_df[chain_B]), p= 2)
-                all_chain_pairwise_dist_mat.append(dist_mat)
-            min_dist_mat= np.nanmin(all_chain_pairwise_dist_mat, axis= 0) # find the shortest possible distance between each tied_position
-            logger.debug(f'_spatially_coupled_sampling() returned the following min_dist_mat:\n{sep}\n{min_dist_mat}\n{sep}\n')
-        min_dist_kernel_df= pd.DataFrame(np.exp(-min_dist_mat**2/sigma**2), columns= allowed_pos_list, index= allowed_pos_list)
+                min_dist_mat= np.nanmin([dist_mat, dist_mat.T], axis= 0)
+                all_pairwise_dist_mat.append(min_dist_mat)
+            min_all_pairwise_dist_mat= np.nanmin(all_pairwise_dist_mat, axis= 0) # find the shortest possible distance between each tied_position
+            logger.debug(f'_spatially_coupled_sampling() returned the following min_all_pairwise_dist_mat:\n{sep}\n{min_all_pairwise_dist_mat}\n{sep}\n')
+            if not np.allclose(min_all_pairwise_dist_mat, min_all_pairwise_dist_mat.T):
+                raise ValueError(f'_spatially_coupled_sampling() returned a non-symmetric min_all_pairwise_dist_mat.')
+
+        min_dist_kernel_df= pd.DataFrame(np.exp(-min_all_pairwise_dist_mat**2/sigma**2), columns= allowed_pos_list, index= allowed_pos_list)
         logger.debug(f'_spatially_coupled_sampling() returned the following min_dist_kernel_df:\n{sep}\n{min_dist_kernel_df}\n{sep}\n')
 
-        n_mutations= rng.binomial(len(allowed_pos_list), mutation_rate)
+        chain_hotspot_allowed_des_pos_ranked_list= protein.candidate_to_chain_des_pos(
+            candidate_des_pos_list= hotspot_allowed_des_pos_ranked_list,
+            chain_id= chain_id,
+            drop_terminal_missing_res= True,
+            drop_internal_missing_res= False
+        )
+        hotspot_dict= dict(zip(hotspot_allowed_des_pos_ranked_list, chain_hotspot_allowed_des_pos_ranked_list))
+        
+        n_mutations= max(1, rng.binomial(len(allowed_pos_list), mutation_rate)) # at least pick one position for mutation
         des_pos_list= []
         for des_pos in hotspot_allowed_des_pos_ranked_list:
-            n_mutations_remaining= n_mutations - len(des_pos_list)
-            if n_mutations_remaining > 0:
-                probs= min_dist_kernel_df[des_pos]
-                probs= probs/probs.sum()
-                n_mutations_to_gen= min(probs.size, n_mutations_remaining)
-                new_des_pos= rng.choice(allowed_pos_list, size= n_mutations_to_gen, replace= False, p= probs).tolist()
-                des_pos_list+= new_des_pos
-                des_pos_list= [*set(des_pos_list)] # remove duplicates
-                logger.debug(f'_spatially_coupled_sampling() returned the following des_pos_list for pos {des_pos}:\n{sep}\n{new_des_pos}\n{sep}\n')
+            if hotspot_dict[des_pos] == None:
+                pass
             else:
-                break
+                n_mutations_remaining= n_mutations - len(des_pos_list)
+                if n_mutations_remaining > 0:
+                    probs= min_dist_kernel_df[des_pos].to_numpy()
+                    probs= np.nan_to_num(probs, nan= 0.)
+                    probs= probs/probs.sum()
+                    n_mutations_to_gen= min(probs.size, n_mutations_remaining)
+                    new_des_pos= rng.choice(allowed_pos_list, size= n_mutations_to_gen, replace= False, p= probs).tolist()
+                    des_pos_list+= new_des_pos
+                    des_pos_list= [*set(des_pos_list)] # remove duplicates
+                    logger.debug(f'_spatially_coupled_sampling() returned the following des_pos_list for pos {des_pos}:\n{sep}\n{new_des_pos}\n{sep}\n')
+                else:
+                    break
         logger.debug(f'_spatially_coupled_sampling() returned the following combined des_pos_list:\n{sep}\n{des_pos_list}\n{sep}\n')
         return des_pos_list
     
@@ -169,7 +192,7 @@ class MutationMethod(object):
         esm_scores_des_pos= []
         for des_pos in chain_des_pos:
             if des_pos is None:
-                esm_scores.des_pos.append(np.nan) # give np.nan if the designable position does not map onto a residue in the chain
+                esm_scores_des_pos.append(np.nan) # give np.nan if the designable position does not map onto a residue in the chain
             else:
                 esm_scores_des_pos.append(esm_scores[des_pos])
         # sort in ascending order for the ESM log likelihood scores (i.e., worst to best)
@@ -189,7 +212,7 @@ class MutationMethod(object):
     def _esm_then_cutoff(self, objective_esm, candidate, protein, allowed_pos_list, mutation_rate):
         chain_id, esm_scores, esm_ranks= self._likelihood_esm_score_rank(objective_esm, candidate, protein, allowed_pos_list)
         n_des_pos= len(allowed_pos_list)
-        n_mutations= min(len(esm_ranks), rng.binomial(n_des_pos, mutation_rate))
+        n_mutations= max(1, min(len(esm_ranks), rng.binomial(n_des_pos, mutation_rate)))
         des_pos_list= list(esm_ranks[:n_mutations])
         logger.debug(f'_esm_then_cutoff() picked {n_mutations}/{n_des_pos} sites:\n{sep}\n{des_pos_list}\n{sep}\n')
         return des_pos_list

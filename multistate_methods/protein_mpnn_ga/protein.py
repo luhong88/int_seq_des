@@ -275,7 +275,7 @@ class Protein(object):
         if all(des_pos is None for des_pos in chain_des_pos_list):
             raise RuntimeError(f'chain_des_pos_list returns None only for chain {chain_id}. Are you sure the chain has any designable positions?')
 
-        chain_des_pos_list.sort()
+        #chain_des_pos_list.sort() # not sure why I wrote this? also won't work if there's any None in the list
 
         logger.debug(f'candidate_to_chain_des_pos() returned the following results:\n{sep}\ncandidate_des_pos_list: {candidate_des_pos_list}\nchain_id: {chain_id}; drop_terminal_missing_res: {drop_internal_missing_res}; drop_internal_missing_res: {drop_internal_missing_res}\nchain_des_pos_list: {chain_des_pos_list}\n{sep}\n')
         return chain_des_pos_list
