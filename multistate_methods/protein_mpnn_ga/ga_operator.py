@@ -4,6 +4,7 @@ from multistate_methods.protein_mpnn_ga.wrapper import ObjectiveESM
 from pymoo.core.mutation import Mutation
 from pymoo.core.sampling import Sampling
 from pymoo.core.problem import Problem
+from pymoo.core.callback import Callback
 
 logger= logging.getLogger(__name__)
 logger.propagate= False
@@ -282,6 +283,22 @@ class MultistateSeqDesignProblem(Problem):
         for metric in self.metrics_list:
             scores.append(metric.apply(candidates, self.protein))
         scores= np.vstack(scores).T
-        out["F"] = scores
+        out['F'] = scores
 
+class SavePop(Callback):
 
+    def __init__(self, metric_list) -> None:
+        super().__init__()
+        self.data['pop'] = []
+        self.metric_name_list= [str(metric) for metric in metric_list]
+
+    def notify(self, algorithm):
+        metrics= algorithm.pop.get('F')
+        candidates= algorithm.pop.get('X')
+
+        pop_df= pd.DataFrame(metrics, columns= self.metric_name_list)
+        pop_df['candidate']= [''.join(candidate) for candidate in candidates]
+
+        self.data['pop'].append(pop_df)
+
+        logger.debug(f'SavePop returned the following population:\n{sep}\n{pop_df}\n{sep}\n')

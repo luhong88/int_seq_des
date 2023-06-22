@@ -209,7 +209,7 @@ class ProteinMPNNWrapper(object):
 
             out_dir.cleanup()
 
-            return records, designed_protein.design_seq.chains_to_design
+            return list(records), designed_protein.design_seq.chains_to_design
     
     def design_seqs_to_candidates(self, fa_records, candidate_chains_to_design, base_candidate):
         AA_locator= []
