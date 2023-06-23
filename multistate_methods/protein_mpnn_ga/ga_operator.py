@@ -1,4 +1,5 @@
 import pickle, itertools, numpy as np, pandas as pd
+from copy import deepcopy
 from scipy.spatial import distance_matrix
 
 from multistate_methods.protein_mpnn_ga.wrapper import ObjectiveESM
@@ -16,69 +17,77 @@ class MutationMethod(object):
             mutation_rate, sigma= None,
             protein_mpnn= None,
             esm_script_loc= None, esm_model= None, esm_device= None):
+        
+        self.choose_pos_method= choose_pos_method
+        self.choose_AA_method= choose_AA_method
         self.prob= prob
-        self.rng= None
-
-        if choose_pos_method == 'random':
-            self.choose_pos= lambda candidate, protein, allowed_pos_list: self._random_sampling(allowed_pos_list, mutation_rate)
-        elif choose_pos_method == 'spatial_coupling':
-            self.choose_pos= lambda candidate, protein, allowed_pos_list: self._spatially_coupled_sampling(
-                protein,
-                self._random_chain_picker(protein),
-                allowed_pos_list,
-                self.rng.permuted(allowed_pos_list),
-                mutation_rate,
-                sigma)
-        elif choose_pos_method == 'likelihood_ESM':
-            self.choose_pos= lambda candidate, protein, allowed_pos_list: self._esm_then_cutoff(
-                ObjectiveESM(
-                    chain_id= self._random_chain_picker(protein),
-                    script_loc= esm_script_loc,
-                    model_name= esm_model if esm_model is not None else 'esm1v',
-                    device= esm_device if esm_device is not None else 'cpu',
-                    sign_flip= False
-                ),
-                candidate,
-                protein,
-                allowed_pos_list,
-                mutation_rate
-            )
-        elif choose_pos_method == 'ESM+spatial':
-            self.choose_pos= lambda candidate, protein, allowed_pos_list: self._esm_then_spatial(
-                ObjectiveESM(
-                    chain_id= self._random_chain_picker(protein),
-                    script_loc= esm_script_loc,
-                    model_name= esm_model if esm_model is not None else 'esm1v',
-                    device= esm_device if esm_device is not None else 'cpu',
-                    sign_flip= False
-                ),
-                candidate,
-                protein,
-                allowed_pos_list,
-                mutation_rate,
-                sigma
-            )
-        else:
-            raise ValueError('Unknown choose_pos_method')
-
-        if choose_AA_method == 'random':
-            self.choose_AA= lambda candidate, protein, proposed_des_pos_list: self._random_resetting(candidate, protein, proposed_des_pos_list)
-        elif choose_AA_method in ['ProteinMPNN-AD', 'ProteinMPNN-PD']:
-            self.choose_AA= lambda candidate, protein, proposed_des_pos_list: \
-                self._protein_mpnn(protein_mpnn, choose_AA_method, candidate, proposed_des_pos_list)
-        else:
-            raise ValueError('Unknown choose_AA_method')
+        self.mutation_rate= mutation_rate
+        self.sigma= sigma
+        self.protein_mpnn= protein_mpnn
+        self.esm_script_loc= esm_script_loc
+        self.esm_model= esm_model
+        self.esm_device= esm_device
 
         self.name= f'choose_pos_method: {choose_pos_method}, choose_AA_method: {choose_AA_method}, prob: {prob}'
 
     def __str__(self):
         return self.name
     
-    def set_rng(self, rng):
-        if self.rng is None:
-            self.rng= rng
-        else:
+    def set_rng_and_init_method(self, rng):
+        if hasattr(self, 'rng'):
             raise RuntimeError(f'The numpy rng generator for MutationMethod {str(self)} is already set.')
+        else:
+            self.rng= rng
+
+            if self.choose_pos_method == 'random':
+                self.choose_pos= lambda candidate, protein, allowed_pos_list: self._random_sampling(allowed_pos_list, self.mutation_rate)
+            elif self.choose_pos_method == 'spatial_coupling':
+                self.choose_pos= lambda candidate, protein, allowed_pos_list: self._spatially_coupled_sampling(
+                    protein,
+                    self._random_chain_picker(protein),
+                    allowed_pos_list,
+                    self.rng.permuted(allowed_pos_list),
+                    self.mutation_rate,
+                    self.sigma)
+            elif self.choose_pos_method == 'likelihood_ESM':
+                self.choose_pos= lambda candidate, protein, allowed_pos_list: self._esm_then_cutoff(
+                    ObjectiveESM(
+                        chain_id= self._random_chain_picker(protein),
+                        script_loc= self.esm_script_loc,
+                        model_name= self.esm_model if self.esm_model is not None else 'esm1v',
+                        device= self.esm_device if self.esm_device is not None else 'cpu',
+                        sign_flip= False
+                    ),
+                    candidate,
+                    protein,
+                    allowed_pos_list,
+                    self.mutation_rate
+                )
+            elif self.choose_pos_method == 'ESM+spatial':
+                self.choose_pos= lambda candidate, protein, allowed_pos_list: self._esm_then_spatial(
+                    ObjectiveESM(
+                        chain_id= self._random_chain_picker(protein),
+                        script_loc= self.esm_script_loc,
+                        model_name= self.esm_model if self.esm_model is not None else 'esm1v',
+                        device= self.esm_device if self.esm_device is not None else 'cpu',
+                        sign_flip= False
+                    ),
+                    candidate,
+                    protein,
+                    allowed_pos_list,
+                    self.mutation_rate,
+                    self.sigma
+                )
+            else:
+                raise ValueError('Unknown choose_pos_method')
+
+            if self.choose_AA_method == 'random':
+                self.choose_AA= lambda candidate, protein, proposed_des_pos_list: self._random_resetting(candidate, protein, proposed_des_pos_list)
+            elif self.choose_AA_method in ['ProteinMPNN-AD', 'ProteinMPNN-PD']:
+                self.choose_AA= lambda candidate, protein, proposed_des_pos_list: \
+                    self._protein_mpnn(self.protein_mpnn, self.choose_AA_method, candidate, proposed_des_pos_list)
+            else:
+                raise ValueError('Unknown choose_AA_method')
 
     def apply(self, candidate, protein, allowed_pos_list= None):
         if allowed_pos_list is None:
@@ -237,6 +246,7 @@ class MutationMethod(object):
         return new_candidate
 
     def _random_chain_picker(self, protein):
+        assert hasattr(self, 'rng'), f'{self} has no rng attr'
         new_chain= self.rng.choice(list(protein.design_seq.chains_to_design)) # only draw from the set of designable chains
         logger.debug(f'_random_chain_picker() returned a new chain_id: {new_chain}\n')
         return new_chain
@@ -245,42 +255,52 @@ class ProteinMutation(Mutation):
     def __init__(self, method_list, root_seed, comm= None, **kwargs):
         super().__init__(prob=1.0, prob_var=None, **kwargs)
 
-        self.method_list= method_list
         self.comm= comm
         self.class_seed= class_seeds[self.__class__.__name__]
         
         if self.comm is None:
-            self.rng= np.random.default_rng([self.class_seed, root_seed])
-            self.rank= None
+            size= 1
         else:
-            self.rank= self.comm.Get_rank()
-            self.size= self.comm.Get_size()
-            self.rng= np.random.default_rng([self.class_seed, self.rank, root_seed])
+            size= self.comm.Get_size()
+        self.rng_list= [np.random.default_rng([self.class_seed, rank, root_seed]) for rank in range(size)]
 
-        for method_ind, method in enumerate(self.method_list):
-            method.set_rng(np.random.default_rng([self.class_seed, self.rank if self.rank is not None else 0, method_ind, root_seed]))
+        method_list_rng_list= []
+        for rank in range(self.comm.Get_size()):
+            method_list_rng= deepcopy(method_list)
+            for method_ind, method in enumerate(method_list_rng):
+                method.set_rng_and_init_method(np.random.default_rng([self.class_seed, rank, method_ind, root_seed]))
+            method_list_rng_list.append(method_list_rng)
+        self.method_list= method_list_rng_list
 
     def _do(self, problem, candidates, **kwargs):
         Xp= []
+
         if self.comm is None:
+            rank= 0
+
             for candidate in candidates:
-                chosen_method= self.rng.choice(self.method_list, p= [method.prob for method in self.method_list])
+                chosen_method= self.rng_list[rank].choice(self.method_list[rank], p= [method.prob for method in self.method_list[rank]])
                 proposed_candidate= chosen_method.apply(candidate, problem.protein)
                 Xp.append(proposed_candidate)
                 logger.debug(f'ProteinMutation returned the following results:\n{sep}\nold_candidate: {candidate}\nchosen_method: {str(chosen_method)}\nnew_candidate: {proposed_candidate}\n{sep}\n')
             return np.asarray(Xp)
+        
         else:
-            candidates_subset= get_array_chunk(candidates, self.rank, self.size)
-            chosen_method= self.rng.choice(self.method_list, p= [method.prob for method in self.method_list])
+            rank= self.comm.Get_rank()
+            size= self.comm.Get_size()
+            
+            candidates_subset= get_array_chunk(candidates, rank, size)
+            chosen_method= self.rng_list[rank].choice(self.method_list[rank], p= [method.prob for method in self.method_list[rank]])
+            
             for candidate in candidates_subset:
                 proposed_candidate= chosen_method.apply(candidate, problem.protein)
                 Xp.append(proposed_candidate)
-                logger.debug(f'ProteinMutation (rank {self.rank}/{self.size}) returned the following results:\n{sep}\nold_candidate: {candidate}\nchosen_method: {str(chosen_method)}\nnew_candidate: {proposed_candidate}\n{sep}\n')
+                logger.debug(f'ProteinMutation (rank {rank}/{size}) returned the following results:\n{sep}\nold_candidate: {candidate}\nchosen_method: {str(chosen_method)}\nnew_candidate: {proposed_candidate}\n{sep}\n')
             
             Xp= self.comm.gather(Xp, root= 0)
-            if self.rank == 0: Xp= np.vstack(Xp)
+            if rank == 0: Xp= np.vstack(Xp)
             Xp= self.comm.bcast(Xp, root= 0)
-            logger.debug(f'ProteinMutation (rank {self.rank}/{self.size}) received the following broadcasted Xp:\n{sep}\n{Xp}\n{sep}\n')
+            logger.debug(f'ProteinMutation (rank {rank}/{size}) received the following broadcasted Xp:\n{sep}\n{Xp}\n{sep}\n')
             
             return Xp
 
@@ -291,12 +311,7 @@ class ProteinSampling(Sampling):
         self.comm= comm
         self.class_seed= class_seeds[self.__class__.__name__]
 
-        if self.comm is None:
-            self.rng= np.random.default_rng([self.class_seed, root_seed])
-        else:
-            self.rank= self.comm.Get_rank()
-            self.size= self.comm.Get_size()
-            self.rng= np.random.default_rng([self.class_seed, self.rank, root_seed])
+        self.rng= np.random.default_rng([self.class_seed, root_seed])
 
     def _do(self, problem, n_samples, **kwargs):
         # use only one process to generate the initial candidates
@@ -307,20 +322,23 @@ class ProteinSampling(Sampling):
                 mutation_rate= 0.1,
                 prob= 1.0
             )
-            method.set_rng(self.rng)
+            method.set_rng_and_init_method(self.rng)
             WT_candidate= problem.protein.get_candidate()
             proposed_candidates= np.array([method.apply(WT_candidate, problem.protein) for _ in range(n_samples)])
             logger.debug(f'ProteinSampling returned the following results:\n{sep}\nold_candidate: {WT_candidate}\nnew_candidates: {proposed_candidates}\n{sep}\n')
             return proposed_candidates
         else:
-            if self.rank == 0:
+            rank= self.comm.Get_rank()
+            size= self.comm.Get_size()
+
+            if rank == 0:
                 method= MutationMethod(
                     choose_pos_method= 'random',
                     choose_AA_method= 'random',
                     mutation_rate= 0.1,
                     prob= 1.0
                 )
-                method.set_rng(self.rng)
+                method.set_rng_and_init_method(self.rng)
                 WT_candidate= problem.protein.get_candidate()
                 proposed_candidates= np.array([method.apply(WT_candidate, problem.protein) for _ in range(n_samples)])
             else:
@@ -328,7 +346,7 @@ class ProteinSampling(Sampling):
                 proposed_candidates= None
 
             proposed_candidates= self.comm.bcast(proposed_candidates, root= 0)
-            logger.debug(f'ProteinSampling (rank {self.rank}/{self.size}) returned the following broadcasted results:\n{sep}\nold_candidate: {WT_candidate}\nnew_candidates: {proposed_candidates}\n{sep}\n')
+            logger.debug(f'ProteinSampling (rank {rank}/{size}) returned the following broadcasted results:\n{sep}\nold_candidate: {WT_candidate}\nnew_candidates: {proposed_candidates}\n{sep}\n')
             return proposed_candidates
 
 class MultistateSeqDesignProblem(Problem):
@@ -339,10 +357,6 @@ class MultistateSeqDesignProblem(Problem):
         self.comm= comm
         super().__init__(n_var= protein.design_seq.n_des_res, n_obj= len(self.metrics_list), n_ieq_constr= 0, xl= None, xu= None, **kwargs)
 
-        if self.comm is not None:
-            self.rank= self.comm.Get_rank()
-            self.size= self.comm.Get_size()
-
     def _evaluate(self, candidates, out, *args, **kwargs):
         scores= []
         if self.comm is None:
@@ -351,14 +365,17 @@ class MultistateSeqDesignProblem(Problem):
             scores= np.vstack(scores).T
             out['F'] = scores
         else:
-            candidates_subset= get_array_chunk(candidates, self.rank, self.size)
-            logger.debug(f'scores (rank {self.rank}) get the candidates_subset {candidates_subset} from the full candidates {candidates}')
+            rank= self.comm.Get_rank()
+            size= self.comm.Get_size()
+            
+            candidates_subset= get_array_chunk(candidates, rank, size)
+            logger.debug(f'scores (rank {rank}) get the candidates_subset {candidates_subset} from the full candidates {candidates}')
             for metric in self.metrics_list:
                 scores.append(metric.apply(candidates_subset, self.protein))
             scores= np.vstack(scores).T # reshape scores from (n_metric, n_candidate) to (n_candidate, n_metric)
             scores= self.comm.gather(scores, root= 0)
-            if self.rank == 0: scores= np.vstack(scores)
+            if rank == 0: scores= np.vstack(scores)
             scores= self.comm.bcast(scores, root= 0)
-            logger.debug(f'MultistateSeqDesignProblem (rank {self.rank}/{self.size}) received the following broadcasted scores:\n{sep}\n{scores}\n{sep}\n')
+            logger.debug(f'MultistateSeqDesignProblem (rank {rank}/{size}) received the following broadcasted scores:\n{sep}\n{scores}\n{sep}\n')
 
             out['F'] = scores

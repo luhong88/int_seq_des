@@ -129,13 +129,13 @@ class Protein(object):
         self.pdb_files_dir= pdb_files_dir
         self.helper_scripts_dir= protein_mpnn_helper_scripts_dir
         
-        self.parsed_pdb_json, self.parsed_pdb_handle= self.parse_pdbs()
-        self.parsed_fixed_chains= self.parse_fixed_chains()
-        self.parsed_fixed_positions= self.parse_fixed_positions()
+        self.parsed_pdb_json, parsed_pdb_handle= self.parse_pdbs()
+        self.parsed_fixed_chains= self.parse_fixed_chains(parsed_pdb_handle)
+        self.parsed_fixed_positions= self.parse_fixed_positions(parsed_pdb_handle)
         self.parsed_tied_positions= self.parse_tied_positions()
         #TODO: add additional parsing options
 
-        self.parsed_pdb_handle.close()
+        parsed_pdb_handle.close()
     
     def get_candidate(self):
         candidate= []
@@ -273,14 +273,14 @@ class Protein(object):
 
         return {'json': parsed_pdb_json, 'exec_str': 'jsonl_path'}, out
     
-    def parse_fixed_chains(self):
+    def parse_fixed_chains(self, parsed_pdb_handle):
         chains_to_design= self.design_seq.chains_to_design
         if self.parsed_pdb_json['json']['num_of_chains'] > len(chains_to_design):
             chains_to_design_str= ' '.join(chains_to_design)
             out= tempfile.NamedTemporaryFile()
             exec_str= [
                 sys.executable, f'{self.helper_scripts_dir}/assign_fixed_chains.py',
-                f'--input_path={self.parsed_pdb_handle.name}',
+                f'--input_path={parsed_pdb_handle.name}',
                 f'--output_path={out.name}',
                 f'--chain_list={chains_to_design_str}'
             ]
@@ -297,7 +297,7 @@ class Protein(object):
         else:
             return None
         
-    def parse_fixed_positions(self):
+    def parse_fixed_positions(self, parsed_pdb_handle):
         fixed_pos_str= []
         chains_str= []
         for chain_id, des_pos in self.design_seq.chain_des_pos_dict.items():
@@ -321,7 +321,7 @@ class Protein(object):
             out= tempfile.NamedTemporaryFile()
             exec_str= [
                 sys.executable, f'{self.helper_scripts_dir}/make_fixed_positions_dict.py',
-                f'--input_path={self.parsed_pdb_handle.name}',
+                f'--input_path={parsed_pdb_handle.name}',
                 f'--output_path={out.name}',
                 f'--chain_list={chains_str}',
                 f'--position_list={fixed_pos_str}'
