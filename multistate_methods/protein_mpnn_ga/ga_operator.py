@@ -2,13 +2,11 @@ import pickle, itertools, numpy as np, pandas as pd
 from scipy.spatial import distance_matrix
 
 from multistate_methods.protein_mpnn_ga.wrapper import ObjectiveESM
-from multistate_methods.protein_mpnn_ga.utils import logger, sep, get_array_chunk, class_seeds
+from multistate_methods.protein_mpnn_ga.utils import logger, sep, class_seeds, get_array_chunk
 from pymoo.core.mutation import Mutation
 from pymoo.core.sampling import Sampling
 from pymoo.core.problem import Problem
 
-# TODO: get RNG to work with MPI properly
-#rng= np.random.default_rng()
 
 class MutationMethod(object):
     # TODO: check the rate of n-point crossover

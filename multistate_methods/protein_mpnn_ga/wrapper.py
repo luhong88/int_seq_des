@@ -2,18 +2,7 @@ import os, io, sys, subprocess, tempfile, jax, numpy as np, pandas as pd
 from Bio import SeqIO
 from multistate_methods.protein_mpnn_ga.af2rank import af2rank
 from multistate_methods.protein_mpnn_ga.protein import DesignedProtein
-from multistate_methods.protein_mpnn_ga.utils import logger, sep
-
-# a way to foce cpu computation
-class Device(object):
-    def __init__(self, device):
-        self.device= device
-    def __enter__(self):
-        if self.device == 'cpu':
-            os.environ['CUDA_VISIBLE_DEVICES']= ''
-    def __exit__(self, type, value, traceback):
-        if self.device == 'cpu':
-            del os.environ['CUDA_VISIBLE_DEVICES']
+from multistate_methods.protein_mpnn_ga.utils import logger, sep, class_seeds, Device
 
 class ObjectiveAF2Rank(object):
     def __init__(self, chain_ids, template_file_loc, tmscore_exec, params_dir, score_term= 'composite', device= 'cpu', sign_flip= True):
