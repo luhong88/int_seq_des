@@ -231,7 +231,7 @@ class MutationMethod(object):
         return new_candidate
 
     def _protein_mpnn(self, protein_mpnn, method, candidate, proposed_des_pos_list):
-        protein_mpnn_seed= self.rng.integers(10000000000)
+        protein_mpnn_seed= self.rng.integers(1000000000)
         new_candidate= np.squeeze(protein_mpnn.design_and_decode_to_candidates(method, candidate, proposed_des_pos_list, num_seqs= 1, batch_size= 1, seed= protein_mpnn_seed))
         logger.debug(f'_protein_mpnn() returned the following results:\n{sep}\nold_candidate: {candidate}\ndes_pos_list: {proposed_des_pos_list}\nnew_candidate: {new_candidate}\n{sep}\n')
         return new_candidate

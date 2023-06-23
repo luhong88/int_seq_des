@@ -33,7 +33,7 @@ def run_single_pass(
             proposed_des_pos_list= np.arange(protein.design_seq.n_des_res),
             num_seqs= num_seqs,
             batch_size= batch_size,
-            seed= rng.integers(10000000000)
+            seed= rng.integers(1000000000)
         )
 
         design_candidates= protein_mpnn.design_seqs_to_candidates(design_fa, chains_to_design, base_candidate)
@@ -45,7 +45,7 @@ def run_single_pass(
             outputs[str(metric)]= metric.apply(design_candidates, protein)
         
         outputs_df= pd.DataFrame(outputs)
-        pickle.dump(outputs_df, open(out_file_name + '.p', 'rb'))
+        pickle.dump(outputs_df, open(out_file_name + '.p', 'wb'))
     
     else:
         rank= comm.Get_rank()
@@ -66,7 +66,7 @@ def run_single_pass(
             proposed_des_pos_list= np.arange(protein.design_seq.n_des_res),
             num_seqs= chunk_size,
             batch_size= batch_size,
-            seed= rng.integers(10000000000)
+            seed= rng.integers(1000000000)
         )
 
         design_candidates= protein_mpnn.design_seqs_to_candidates(design_fa, chains_to_design, base_candidate)
@@ -81,7 +81,7 @@ def run_single_pass(
         outputs_df_list= comm.gather(outputs_df, root= 0)
         if rank == 0:
             outputs_df= pd.concat(outputs_df_list, ignore_index= True)
-            pickle.dump(outputs_df, open(out_file_name + '.p', 'rb'))
+            pickle.dump(outputs_df, open(out_file_name + '.p', 'wb'))
 
 def run_nsga2(
         protein, protein_mpnn,
