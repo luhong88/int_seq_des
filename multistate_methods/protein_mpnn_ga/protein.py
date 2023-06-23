@@ -1,60 +1,6 @@
 import glob, sys, subprocess, tempfile, json, numpy as np
-from Bio.PDB import PDBParser, PDBIO
-from multistate_methods.protein_mpnn_ga.utils import logger, sep
+from multistate_methods.protein_mpnn_ga.utils import logger, sep, alphabet, merge_pdb_files
 
-alphabet = 'ACDEFGHIKLMNPQRSTVWY'
-
-def _equidistant_points(n_pts, mol_radius, min_dist):
-    '''
-    Create a list of equidistant points on a circle in the xy-plane
-    The minimum distance between spheres of radius mol_radius centered at these points is 2*mol_radius+min_dist
-    '''
-    if n_pts > 1:
-        theta= 2*np.pi/n_pts
-        radius= (2*mol_radius + min_dist)/(2*np.sin(theta/2.))
-        pos_list= np.asarray([[radius*np.cos(n*theta), radius*np.sin(n*theta), 0.] for n in range(n_pts)])
-        return pos_list
-    else:
-        return np.array([[0., 0., 0.]])
-
-def _merge_pdb_files(input_files, output_file, min_dist= 100):
-        '''
-        min_dist in Angstrom
-        '''
-        parser = PDBParser()
-
-        structures= [parser.get_structure(file, file) for file in input_files]
-
-        CA_coords_list= []
-        for structure in structures:
-            if len(structure) > 1:
-                logger.warning(f'More than one models detected in {structure.id}; only the first model will be read and used!')
-            CA_coords= []
-            for chain in structure[0]:
-                for residue in chain:
-                        CA_coords.append(residue['CA'].get_coord())
-            CA_coords_list.append(np.asarray(CA_coords))
-        
-        old_COM_list= [np.mean(CA_coords, axis= 0) for CA_coords in CA_coords_list]
-        mol_radius_list= [np.max(np.linalg.norm(CA_coords - COM, axis= 1)) for CA_coords, COM in zip(CA_coords_list, old_COM_list)]
-        new_COM_list= _equidistant_points(len(structures), np.max(mol_radius_list), min_dist)
-        
-        for structure, old_COM, new_COM in zip(structures, old_COM_list, new_COM_list):
-            for chain in structure[0]:
-                for residue in chain:
-                    for atom in residue:
-                        atom.transform(np.eye(3), new_COM - old_COM)
-        
-        merged_structure= structures[0].copy()
-        if len(structures) > 1:
-            for structure in structures[1:]:
-                for chain in structure[0]:
-                    merged_structure[0].add(chain)
-        
-        # Write the merged structure to the output file
-        pdb_io= PDBIO()
-        pdb_io.set_structure(merged_structure)
-        pdb_io.save(output_file)
 
 class Residue(object):
     def __init__(self, chain_id, resid, weight):
@@ -276,7 +222,7 @@ class Protein(object):
     def parse_pdbs(self):
         combined_pdb_file_dir= tempfile.TemporaryDirectory()
         pdbs_list= glob.glob(f'{self.pdb_files_dir}/*.pdb')
-        _merge_pdb_files(pdbs_list, f'{combined_pdb_file_dir.name}/combined_pdb.pdb')
+        merge_pdb_files(pdbs_list, f'{combined_pdb_file_dir.name}/combined_pdb.pdb')
 
         out= tempfile.NamedTemporaryFile()
         exec_str= [

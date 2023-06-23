@@ -1,12 +1,11 @@
-import itertools, numpy as np, pandas as pd
+import pickle, itertools, numpy as np, pandas as pd
 from scipy.spatial import distance_matrix
 
 from multistate_methods.protein_mpnn_ga.wrapper import ObjectiveESM
-from multistate_methods.protein_mpnn_ga.utils import logger, sep, get_array_chunk
+from multistate_methods.protein_mpnn_ga.utils import logger, sep, get_array_chunk, class_seeds
 from pymoo.core.mutation import Mutation
 from pymoo.core.sampling import Sampling
 from pymoo.core.problem import Problem
-from pymoo.core.callback import Callback
 
 # TODO: get RNG to work with MPI properly
 #rng= np.random.default_rng()
@@ -250,7 +249,7 @@ class ProteinMutation(Mutation):
 
         self.method_list= method_list
         self.comm= comm
-        self.class_seed= 350671
+        self.class_seed= class_seeds[self.__class__.__name__]
         
         if self.comm is None:
             self.rng= np.random.default_rng([self.class_seed, root_seed])
@@ -292,7 +291,7 @@ class ProteinSampling(Sampling):
         super().__init__()
 
         self.comm= comm
-        self.class_seed= 501129
+        self.class_seed= class_seeds[self.__class__.__name__]
 
         if self.comm is None:
             self.rng= np.random.default_rng([self.class_seed, root_seed])
@@ -302,6 +301,7 @@ class ProteinSampling(Sampling):
             self.rng= np.random.default_rng([self.class_seed, self.rank, root_seed])
 
     def _do(self, problem, n_samples, **kwargs):
+        # use only one process to generate the initial candidates
         if problem.comm == None:
             method= MutationMethod(
                 choose_pos_method= 'random',
@@ -364,21 +364,3 @@ class MultistateSeqDesignProblem(Problem):
             logger.debug(f'MultistateSeqDesignProblem (rank {self.rank}/{self.size}) received the following broadcasted scores:\n{sep}\n{scores}\n{sep}\n')
 
             out['F'] = scores
-
-class SavePop(Callback):
-
-    def __init__(self, metric_list) -> None:
-        super().__init__()
-        self.data['pop'] = []
-        self.metric_name_list= [str(metric) for metric in metric_list]
-
-    def notify(self, algorithm):
-        metrics= algorithm.pop.get('F')
-        candidates= algorithm.pop.get('X')
-
-        pop_df= pd.DataFrame(metrics, columns= self.metric_name_list)
-        pop_df['candidate']= [''.join(candidate) for candidate in candidates]
-
-        self.data['pop'].append(pop_df)
-
-        logger.debug(f'SavePop returned the following population:\n{sep}\n{pop_df}\n{sep}\n')
