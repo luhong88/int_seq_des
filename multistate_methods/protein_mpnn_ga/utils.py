@@ -24,6 +24,8 @@ def get_logger():
 
     return logger
 
+logger= get_logger()
+
 # a way to foce cpu computation
 class Device(object):
     def __init__(self, device):
