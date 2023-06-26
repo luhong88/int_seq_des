@@ -127,7 +127,7 @@ def run_nsga2(
             design_problem,
             algorithm,
             ('n_gen', n_generation),
-            seed= root_seed,
+            seed= root_seed if isinstance(root_seed, int) else sum(root_seed),
             verbose= False,
             callback= DumpPop(metrics_list, out_file_name),
             copy_algorithm= False
@@ -141,7 +141,7 @@ def run_nsga2(
             design_problem,
             algorithm,
             ('n_gen', n_generation),
-            seed= root_seed,
+            seed= root_seed if isinstance(root_seed, int) else sum(root_seed),
             verbose= False,
             callback= SavePop(metrics_list),
             copy_algorithm= False
