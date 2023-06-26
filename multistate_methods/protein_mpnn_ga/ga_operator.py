@@ -3,11 +3,12 @@ from copy import deepcopy
 from scipy.spatial import distance_matrix
 
 from multistate_methods.protein_mpnn_ga.wrapper import ObjectiveESM
-from multistate_methods.protein_mpnn_ga.utils import logger, sep, class_seeds, get_array_chunk
+from multistate_methods.protein_mpnn_ga.utils import get_logger, sep, class_seeds, get_array_chunk
 from pymoo.core.mutation import Mutation
 from pymoo.core.sampling import Sampling
 from pymoo.core.problem import Problem
 
+logger= get_logger()
 
 class MutationMethod(object):
     # TODO: check the rate of n-point crossover
@@ -305,9 +306,10 @@ class ProteinMutation(Mutation):
             return Xp
 
 class ProteinSampling(Sampling):
-    def __init__(self, root_seed, comm= None):
+    def __init__(self, mutation_rate, root_seed, comm= None):
         super().__init__()
 
+        self.mutation_rate= mutation_rate
         self.comm= comm
         self.class_seed= class_seeds[self.__class__.__name__]
 
@@ -319,7 +321,7 @@ class ProteinSampling(Sampling):
             method= MutationMethod(
                 choose_pos_method= 'random',
                 choose_AA_method= 'random',
-                mutation_rate= 0.1,
+                mutation_rate= self.mutation_rate,
                 prob= 1.0
             )
             method.set_rng_and_init_method(self.rng)

@@ -4,13 +4,6 @@ from Bio.PDB import PDBParser, PDBIO
 from pymoo.core.callback import Callback
 from pymoo.core.sampling import Sampling
 
-logger= logging.getLogger(__name__)
-logger.propagate= False
-logger.setLevel(logging.DEBUG)
-c_handler= logging.StreamHandler()
-c_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-logger.addHandler(c_handler)
-
 sep= '-'*50
 
 alphabet = 'ACDEFGHIKLMNPQRSTVWY'
@@ -20,6 +13,16 @@ class_seeds= {
     'ProteinMutation': 350671,
     'ProteinSampling': 501129,
 }
+
+def get_logger():
+    logger= logging.getLogger(__name__)
+    logger.propagate= False
+    logger.setLevel(logging.DEBUG)
+    c_handler= logging.StreamHandler()
+    c_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    logger.addHandler(c_handler)
+
+    return logger
 
 # a way to foce cpu computation
 class Device(object):
