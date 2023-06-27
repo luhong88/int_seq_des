@@ -5,7 +5,7 @@ from pymoo.optimize import minimize
 from multistate_methods.protein_mpnn_ga.ga_operator import ProteinSampling, MultistateSeqDesignProblem
 from multistate_methods.protein_mpnn_ga.utils import get_logger, class_seeds, LoadPop, SavePop, DumpPop
 
-logger= get_logger()
+logger= get_logger(__name__)
 
 def run_single_pass(
         protein,

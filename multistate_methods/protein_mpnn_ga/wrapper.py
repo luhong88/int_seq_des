@@ -4,7 +4,7 @@ from multistate_methods.protein_mpnn_ga.af2rank import af2rank
 from multistate_methods.protein_mpnn_ga.protein import DesignedProtein
 from multistate_methods.protein_mpnn_ga.utils import get_logger, sep, Device
 
-logger= get_logger()
+logger= get_logger(__name__)
 
 class ObjectiveAF2Rank(object):
     def __init__(self, chain_ids, template_file_loc, tmscore_exec, params_dir, score_term= 'composite', device= 'cpu', sign_flip= True):
@@ -116,7 +116,6 @@ class ObjectiveESM(object):
                 proc_output, proc_error= proc.communicate(input= input_fa.encode())
                 t1= time.time()
                 logger.info(f'ESM (device: {self.device}, name= {self.name}, position_wise) run time: {t1 - t0} s.\n')
-                logger.debug(f'ESM (device: {self.device}, name= {self.name}) apply() returned the following results:\n{sep}\n{neg_output_arr}\n{sep}\n')
                 if proc_error:
                     pass # the script likelihood_esm.py uses stderr to print calculation progression, so don't check error at this stage
                     #raise RuntimeError(f'Command {proc.args} returned non-zero exist status {proc.returncode} with the stderr\n{proc_error.decode()}')

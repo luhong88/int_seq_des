@@ -8,7 +8,7 @@ from pymoo.core.mutation import Mutation
 from pymoo.core.sampling import Sampling
 from pymoo.core.problem import Problem
 
-logger= get_logger()
+logger= get_logger(__name__)
 
 class MutationMethod(object):
     # TODO: check the rate of n-point crossover

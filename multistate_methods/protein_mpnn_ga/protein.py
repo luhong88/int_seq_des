@@ -1,7 +1,7 @@
 import glob, sys, subprocess, tempfile, json, numpy as np
 from multistate_methods.protein_mpnn_ga.utils import get_logger, sep, alphabet, merge_pdb_files
 
-logger= get_logger()
+logger= get_logger(__name__)
 
 class Residue(object):
     def __init__(self, chain_id, resid, weight):

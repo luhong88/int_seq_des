@@ -14,17 +14,17 @@ class_seeds= {
     'ProteinSampling': 501129,
 }
 
-def get_logger():
-    logger= logging.getLogger(__name__)
+def get_logger(module_name):
+    logger= logging.getLogger(module_name)
     logger.propagate= False
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(logging.INFO)
     c_handler= logging.StreamHandler()
     c_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
     logger.addHandler(c_handler)
 
     return logger
 
-logger= get_logger()
+logger= get_logger(__name__)
 
 # a way to foce cpu computation
 class Device(object):
