@@ -337,7 +337,7 @@ class ProteinSampling(Sampling):
                 method= MutationMethod(
                     choose_pos_method= 'random',
                     choose_AA_method= 'random',
-                    mutation_rate= 0.1,
+                    mutation_rate= self.mutation_rate,
                     prob= 1.0
                 )
                 method.set_rng_and_init_method(self.rng)

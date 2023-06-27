@@ -256,7 +256,7 @@ class Protein(object):
             if old_full_seq != new_full_seq:
                 if len(old_full_seq) != len(new_full_seq):
                     raise IndexError(f'The chain {chain_id} sequence parsed from the pdb file does not have the same length as that parsed from the inputs (after removing terminal missing residues):\n\{sep}\npdb_seq: {old_full_seq}\nparsed_seq: {new_full_seq})\n{sep}\n')
-                logger.warning(f'The chain {chain_id} sequence parsed from the pdb file ({old_full_seq} is not the same as that parsed from the inputs ({new_full_seq}))')
+                logger.info(f'The chain {chain_id} sequence parsed from the pdb file ({old_full_seq} is not the same as that parsed from the inputs ({new_full_seq}))')
             logger.debug(f'parse_pdbs() chain {chain_id} sequence is updated:\n{sep}\nold_seq: {old_full_seq}\nnew_seq: {new_full_seq}\n{sep}\n')
             
             parsed_pdb_json[f'seq_chain_{chain_id}']= new_full_seq
