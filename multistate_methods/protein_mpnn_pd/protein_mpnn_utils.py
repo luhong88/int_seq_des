@@ -1440,12 +1440,13 @@ class ProteinMPNN(nn.Module):
                             dissimilarity_vec= squareform(dissimilarity_mat, checks= False, force= 'tovector')
                             hierarchy= linkage(dissimilarity_vec, method= 'single')
                             labels= fcluster(hierarchy, 1 - corr_cutoff, criterion= 'distance') - 1
-                            n_clusters= np.max(labels)
+                            n_clusters= np.max(labels) + 1
 
                             reduced_probs= torch.zeros((n_clusters, 21), device= device)
                             for cl in range(n_clusters):
                                 cl_mask= labels == cl
-                                reduced_probs[cl]= torch.mean(probs[sample][cl_mask], axis= 0) # note that this is averaging the probabilities, not the same thing as averaging the logits for tied symmetric positions
+                                reduced_probs[cl]= torch.mean(probs[sample][cl_mask], axis= 0) # note that this is averaging the (normalized) probabilities, not the same thing as averaging the (unnormalized) logits for tied symmetric positions
+                            #print(f'\n----------\nt_list:\n{t_list}\ncorr_mat:\n{np.array2string(1. - dissimilarity_mat, precision= 2)}\nlabels:\n{labels}\nprobs:\n{np.array2string(probs[sample].numpy(), precision= 2)}\nreduced_probs:\n{np.array2string(reduced_probs.numpy(), precision= 2)}\n----------\n')
                         else:
                             reduced_probs= probs[sample]
                         
@@ -1469,7 +1470,7 @@ class ProteinMPNN(nn.Module):
                             ave_probs_pareto_masked[sample][~pareto_mask]= 0.
                             if uniform_sampling:
                                 ave_probs_pareto_masked[sample][pareto_mask]= 1.
-                        S_t_repeat = torch.multinomial(ave_probs_pareto_masked, 1).squeeze(-1)
+                            S_t_repeat = torch.multinomial(ave_probs_pareto_masked, 1).squeeze(-1)
                     
                 S_t_repeat = (chain_mask[:,t]*S_t_repeat + (1-chain_mask[:,t])*S_true[:,t]).long() #hard pick fixed positions
                 for t in t_list:

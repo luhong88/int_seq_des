@@ -17,7 +17,7 @@ class_seeds= {
 def get_logger(module_name):
     logger= logging.getLogger(module_name)
     logger.propagate= False
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.DEBUG)
     c_handler= logging.StreamHandler()
     c_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
     logger.addHandler(c_handler)
@@ -65,7 +65,10 @@ def merge_pdb_files(input_files, output_file, min_dist= 100):
             CA_coords= []
             for chain in structure[0]:
                 for residue in chain:
-                        CA_coords.append(residue['CA'].get_coord())
+                        try:
+                            CA_coords.append(residue['CA'].get_coord())
+                        except KeyError:
+                            pass
             CA_coords_list.append(np.asarray(CA_coords))
         
         old_COM_list= [np.mean(CA_coords, axis= 0) for CA_coords in CA_coords_list]

@@ -35,7 +35,7 @@ def run_single_pass(
             base_candidate= base_candidate,
             proposed_des_pos_list= np.arange(protein.design_seq.n_des_res),
             num_seqs= num_seqs,
-            batch_size= batch_size,
+            batch_size= protein_mpnn_batch_size,
             seed= rng.integers(1000000000)
         )
         t1= time.time()
