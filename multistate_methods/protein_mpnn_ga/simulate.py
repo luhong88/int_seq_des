@@ -62,7 +62,7 @@ def run_single_pass(
 
         chunk_size= num_seqs/size
         if not chunk_size.is_integer():
-            raise ValueError(f'It is not possible to evenly divide {num_seqs} sequences into {size + 1} processes.')
+            raise ValueError(f'It is not possible to evenly divide {num_seqs} sequences into {size} processes.')
         else:
             chunk_size= int(chunk_size)
         

@@ -108,7 +108,7 @@ class ObjectiveESM(object):
 
             exec_str= self.exec
             if position_wise:
-                out= tempfile.NamedTemporaryFile()
+                out= tempfile.NamedTemporaryFile(suffix= str(hash(input_fa)))
                 exec_str+= ['--positionwise', out.name]
                 
                 t0= time.time()
