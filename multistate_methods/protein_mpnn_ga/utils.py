@@ -17,7 +17,7 @@ class_seeds= {
 def get_logger(module_name):
     logger= logging.getLogger(module_name)
     logger.propagate= False
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.WARN)
     c_handler= logging.StreamHandler()
     c_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
     logger.addHandler(c_handler)
@@ -54,7 +54,7 @@ def merge_pdb_files(input_files, output_file, min_dist= 100):
         '''
         min_dist in Angstrom
         '''
-        parser = PDBParser()
+        parser = PDBParser(QUIET= True)
 
         structures= [parser.get_structure(file, file) for file in input_files]
 
