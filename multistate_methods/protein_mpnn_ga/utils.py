@@ -50,7 +50,14 @@ def _equidistant_points(n_pts, mol_radius, min_dist):
     else:
         return np.array([[0., 0., 0.]])
 
-def merge_pdb_files(input_files, output_file, min_dist= 100):
+def _lattice_points(n_pts, mol_radius, min_dist):
+    unit_len= 2*mol_radius + min_dist
+    lattice_dim= int(np.ceil(np.cbrt(n_pts)))
+    lattice_pts= (lattice_dim - 1)*unit_len*np.mgrid[:1:lattice_dim*1j, :1:lattice_dim*1j, :1:lattice_dim*1j].reshape(3, -1).T - (lattice_dim - 1)*unit_len/2
+    #np.random.shuffle(lattice_pts)
+    return lattice_pts[:n_pts]
+
+def merge_pdb_files(input_files, output_file, min_dist= 24):
         '''
         min_dist in Angstrom
         '''
@@ -73,7 +80,10 @@ def merge_pdb_files(input_files, output_file, min_dist= 100):
         
         old_COM_list= [np.mean(CA_coords, axis= 0) for CA_coords in CA_coords_list]
         mol_radius_list= [np.max(np.linalg.norm(CA_coords - COM, axis= 1)) for CA_coords, COM in zip(CA_coords_list, old_COM_list)]
-        new_COM_list= _equidistant_points(len(structures), np.max(mol_radius_list), min_dist)
+        if len(structures) <= 4:
+            new_COM_list= _equidistant_points(len(structures), np.max(mol_radius_list), min_dist)
+        else:
+            new_COM_list= _lattice_points(len(structures), np.max(mol_radius_list), min_dist)
         
         for structure, old_COM, new_COM in zip(structures, old_COM_list, new_COM_list):
             for chain in structure[0]:
