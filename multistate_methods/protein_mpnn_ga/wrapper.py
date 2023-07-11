@@ -8,8 +8,6 @@ logger= get_logger(__name__)
 
 class ObjectiveAF2Rank(object):
     def __init__(self, chain_ids, template_file_loc, tmscore_exec, params_dir, score_term= 'composite', device= 'cpu', sign_flip= True):
-        self.device= device
-
         multimer= True if len(chain_ids) > 1 else False
         # note that the multimer params version might change in the future, depending on alphafold-multimer and colabfold developments.
         model_name= 'model_1_multimer_v3' if multimer else 'model_1_ptm'
@@ -26,15 +24,11 @@ class ObjectiveAF2Rank(object):
         
         self.sign_flip= sign_flip
         self.name= ('neg_' if sign_flip else '') + f'af2rank_{score_term}_chain_{"".join(self.chain_ids)}_{model_name}'
-
-        with Device(self.device):
-            self.model= af2rank(
-                pdb= template_file_loc,
-                chain= ','.join(self.chain_ids),
-                model_name= model_name,
-                tmscore_exec= tmscore_exec,
-                params_dir= params_dir)
-    
+        self.device= device
+        self.template_file_loc= template_file_loc
+        self.tmscore_exec= tmscore_exec
+        self.params_dir= params_dir
+        
     def __str__(self):
         return self.name
         
@@ -52,9 +46,15 @@ class ObjectiveAF2Rank(object):
         logger.debug(f'AF2Rank (device: {self.device}, name: {self.name}) called with the sequences:\n{sep}\n{full_seqs}\n{sep}\n')
         output= []
         with Device(self.device):
+            model= af2rank(
+                pdb= self.template_file_loc,
+                chain= ','.join(self.chain_ids),
+                model_name= self.settings['model_name'],
+                tmscore_exec= self.tmscore_exec,
+                params_dir= self.params_dir)
             for seq_ind, seq in enumerate(full_seqs):
                 t0= time.time()
-                output_dict= self.model.predict(seq= seq, **self.settings, output_pdb= None, extras= {'id': seq_ind}, verbose= False)
+                output_dict= model.predict(seq= seq, **self.settings, output_pdb= None, extras= {'id': seq_ind}, verbose= False)
                 t1= time.time()
                 logger.info(f'AF2Rank (device: {self.device}, name: {self.name}) run time: {t1 - t0} s.')
                 logger.debug(f'AF2Rank (device: {self.device}, name: {self.name}) output:\n{sep}\n{output_dict}\n{sep}\n')
