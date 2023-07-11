@@ -33,9 +33,17 @@ class Device(object):
     def __enter__(self):
         if self.device == 'cpu':
             os.environ['CUDA_VISIBLE_DEVICES']= ''
+            # limit pytorch to one process
+            os.environ['OMP_NUM_THREADS']= '1'
+            os.environ['MKL_NUM_THREADS']= '1'
+            # Limit to single-threaded jax/xla operations; see https://github.com/google/jax/issues/743
+            os.environ['XLA_FLAGS']= ("--xla_cpu_multi_thread_eigen=false "
+                                      "intra_op_parallelism_threads=1")
+            #os.environ['TF_CPP_MIN_LOG_LEVEL']= '2'
     def __exit__(self, type, value, traceback):
         if self.device == 'cpu':
             del os.environ['CUDA_VISIBLE_DEVICES']
+            del os.environ['XLA_FLAGS']
 
 def _equidistant_points(n_pts, mol_radius, min_dist):
     '''
@@ -54,8 +62,9 @@ def _lattice_points(n_pts, mol_radius, min_dist):
     unit_len= 2*mol_radius + min_dist
     lattice_dim= int(np.ceil(np.cbrt(n_pts)))
     lattice_pts= (lattice_dim - 1)*unit_len*np.mgrid[:1:lattice_dim*1j, :1:lattice_dim*1j, :1:lattice_dim*1j].reshape(3, -1).T - (lattice_dim - 1)*unit_len/2
-    #np.random.shuffle(lattice_pts)
-    return lattice_pts[:n_pts]
+    lattice_subset= lattice_pts[:n_pts]
+    lattice_subset_centered= lattice_subset - np.mean(lattice_subset, axis= 0)
+    return lattice_subset_centered
 
 def merge_pdb_files(input_files, output_file, min_dist= 24):
         '''

@@ -45,7 +45,6 @@ def run_single_pass(
 
         outputs['seq']= [str(fa.seq) for fa in design_fa[1:]]
         outputs['candidate']= [''.join(candidate) for candidate in design_candidates]
-        print(outputs['candidate'][0], flush= True)
 
         for metric in metrics_list:
             t0= time.time()
