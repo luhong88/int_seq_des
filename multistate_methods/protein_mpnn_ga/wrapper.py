@@ -109,11 +109,12 @@ class ObjectiveESM(object):
                 proc= subprocess.Popen(exec_str, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 proc_output, proc_error= proc.communicate(input= input_fa.encode())
                 t1= time.time()
-                logger.info(f'ESM (device: {self.device}, name= {self.name}, position_wise) run time: {t1 - t0} s.\n')
-                if proc_error:
-                    # the script likelihood_esm.py uses stderr to print calculation progression, so don't check error at this stage
-                    logger.info(f'Command {proc.args} returned non-zero exist status {proc.returncode} with the stderr\n{sep}{proc_error.decode()}{sep}\n')
-                output_df= pd.read_csv(out.name, sep= ',')
+                logger.info(f'ESM (device: {self.device}, name= {self.name}, position_wise) run time: {t1 - t0} s.\n')                    
+                try:
+                    output_df= pd.read_csv(out.name, sep= ',')
+                except:
+                    # The script uses stderr to print progression info, so only check for error when attempting to read the output file
+                    logger.exception(f'Command {proc.args} returned non-zero exist status {proc.returncode} with the stderr\n{sep}{proc_error.decode()}{sep}\n')
                 output_arr= output_df[self.model_name].str.split(pat= ';', expand= True).to_numpy(dtype= float)
                 out.close()
             else:
@@ -122,9 +123,10 @@ class ObjectiveESM(object):
                 proc_output, proc_error= proc.communicate(input= input_fa.encode())
                 t1= time.time()
                 logger.info(f'ESM (device: {self.device}, name= {self.name}) run time: {t1 - t0} s.\n')
-                if proc_error:
-                    pass
-                output_df= pd.read_csv(io.StringIO(proc_output.decode()), sep= ',')
+                try:
+                    output_df= pd.read_csv(io.StringIO(proc_output.decode()), sep= ',')
+                except:
+                    logger.exception(f'Command {proc.args} returned non-zero exist status {proc.returncode} with the stderr\n{sep}{proc_error.decode()}{sep}\n')
                 output_arr= output_df[self.model_name].to_numpy(dtype= float)
             
             logger.debug(f'ESM (device: {self.device}, name= {self.name}) was called with the command:\n{sep}\n{exec_str}\n{sep}\nstdout:\n{sep}\n{proc_output.decode()}\n{sep}\nstderr:\n{sep}\n{proc_error.decode()}\n{sep}\n')
