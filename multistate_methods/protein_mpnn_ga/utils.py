@@ -1,5 +1,6 @@
 import os, logging, pickle, numpy as np, pandas as pd
 from Bio.PDB import PDBParser, PDBIO
+from difflib import SequenceMatcher
 
 from pymoo.core.callback import Callback
 from pymoo.core.sampling import Sampling
@@ -44,6 +45,18 @@ class Device(object):
         if self.device == 'cpu':
             del os.environ['CUDA_VISIBLE_DEVICES']
             del os.environ['XLA_FLAGS']
+
+class NativeSeqRecovery(object):
+    def __init__(self):
+        self.name= 'identity'
+    
+    def __str__(self):
+        return self.name
+
+    def apply(self, candidates, protein):
+        WT_seq= ''.join(protein.get_candidate())
+        results= [SequenceMatcher(None, WT_seq, ''.join(candidate)).ratio() for candidate in candidates]
+        return results
 
 def _equidistant_points(n_pts, mol_radius, min_dist):
     '''
@@ -120,11 +133,38 @@ def get_array_chunk(arr, rank, size):
         
     return arr[rank*chunk_size:(rank + 1)*chunk_size]
 
+def _evaluate_observers(observer_metrics_list, candidates, protein, comm):
+    scores= []
+    if comm is None:
+        for metric in observer_metrics_list:
+            scores.append(metric.apply(candidates, protein))
+        scores= np.vstack(scores).T
+
+    else:
+        rank= comm.Get_rank()
+        size= comm.Get_size()
+        
+        candidates_subset= get_array_chunk(candidates, rank, size)
+        logger.debug(f'scores (rank {rank}; observer) get the candidates_subset {candidates_subset} from the full candidates {candidates}')
+        for metric in observer_metrics_list:
+            scores.append(metric.apply(candidates_subset, protein))
+        scores= np.vstack(scores).T # reshape scores from (n_metric, n_candidate) to (n_candidate, n_metric)
+        scores= comm.gather(scores, root= 0)
+        if rank == 0: scores= np.vstack(scores)
+        scores= comm.bcast(scores, root= 0)
+        logger.debug(f'_evaluate_observers() (rank {rank}/{size}) received the following broadcasted scores:\n{sep}\n{scores}\n{sep}\n')
+
+    scores_df= pd.DataFrame(scores, columns= [str(metric) for metric in observer_metrics_list])
+    return scores_df
+
 class SavePop(Callback):
-    def __init__(self, metric_list):
+    def __init__(self, protein, metrics_list, observer_metrics_list, comm= None):
         super().__init__()
         self.data['pop'] = []
-        self.metric_name_list= [str(metric) for metric in metric_list]
+        self.protein= protein
+        self.metric_name_list= [str(metric) for metric in metrics_list]
+        self.observer_metrics_list= observer_metrics_list
+        self.comm= comm
 
     def notify(self, algorithm):
         metrics= algorithm.pop.get('F')
@@ -133,26 +173,36 @@ class SavePop(Callback):
         pop_df= pd.DataFrame(metrics, columns= self.metric_name_list)
         pop_df['candidate']= [''.join(candidate) for candidate in candidates]
 
+        if self.observer_metrics_list is not None:
+            observer_metrics_scores= _evaluate_observers(self.observer_metrics_list, candidates, self.protein, self.comm)
+            pop_df= pd.concat([pop_df, observer_metrics_scores], axis= 1)
+
         self.data['pop'].append(pop_df)
 
         logger.debug(f'SavePop returned the following population:\n{sep}\n{pop_df}\n{sep}\n')
 
 class DumpPop(Callback):
-    def __init__(self, metric_list, out_file_name, comm= None):
+    def __init__(self, protein, metrics_list, observer_metrics_list, out_file_name, comm= None):
         super().__init__()
-        self.metric_name_list= [str(metric) for metric in metric_list]
+        self.protein= protein
+        self.metric_name_list= [str(metric) for metric in metrics_list]
+        self.observer_metrics_list= observer_metrics_list
         self.out_file_name= out_file_name
         self.iteration= 0
         self.comm= comm
 
     def notify(self, algorithm):
+        metrics= algorithm.pop.get('F')
+        candidates= algorithm.pop.get('X')
+
+        pop_df= pd.DataFrame(metrics, columns= self.metric_name_list)
+        pop_df['candidate']= [''.join(candidate) for candidate in candidates]
+
+        if self.observer_metrics_list is not None:    
+            observer_metrics_scores= _evaluate_observers(self.observer_metrics_list, candidates, self.protein, self.comm)
+            pop_df= pd.concat([pop_df, observer_metrics_scores], axis= 1)
+
         if (self.comm is None) or (self.comm.Get_rank() == 0):
-            metrics= algorithm.pop.get('F')
-            candidates= algorithm.pop.get('X')
-
-            pop_df= pd.DataFrame(metrics, columns= self.metric_name_list)
-            pop_df['candidate']= [''.join(candidate) for candidate in candidates]
-
             pickle.dump(pop_df, open(f'{self.out_file_name}_{self.iteration}.p', 'wb'))
             self.iteration+= 1
 

@@ -266,7 +266,7 @@ class ProteinMutation(Mutation):
         self.rng_list= [np.random.default_rng([self.class_seed, rank, root_seed]) for rank in range(size)]
 
         method_list_rng_list= []
-        for rank in range(self.comm.Get_size()):
+        for rank in range(size):
             method_list_rng= deepcopy(method_list)
             for method_ind, method in enumerate(method_list_rng):
                 method.set_rng_and_init_method(np.random.default_rng([self.class_seed, rank, method_ind, root_seed]))

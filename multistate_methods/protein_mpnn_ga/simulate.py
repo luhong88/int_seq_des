@@ -102,7 +102,7 @@ def run_nsga2(
         pop_size, n_generation,
         mutation_operator, crossover_operator, metrics_list,
         root_seed, out_file_name, saving_method,
-        comm= None,
+        observer_metrics_list= None, comm= None,
         restart= False, init_pop_file= None, init_mutation_rate= 0.1
         ):
     
@@ -129,7 +129,7 @@ def run_nsga2(
             ('n_gen', n_generation),
             seed= root_seed if isinstance(root_seed, int) else sum(root_seed),
             verbose= False,
-            callback= DumpPop(metrics_list, out_file_name),
+            callback= DumpPop(protein, metrics_list, observer_metrics_list, out_file_name, comm),
             copy_algorithm= False
         )
         t1= time.time()
@@ -143,7 +143,7 @@ def run_nsga2(
             ('n_gen', n_generation),
             seed= root_seed if isinstance(root_seed, int) else sum(root_seed),
             verbose= False,
-            callback= SavePop(metrics_list),
+            callback= SavePop(protein, metrics_list, observer_metrics_list, comm),
             copy_algorithm= False
         )
         t1= time.time()
