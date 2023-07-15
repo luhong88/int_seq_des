@@ -101,11 +101,24 @@ def run_nsga2(
         protein, protein_mpnn,
         pop_size, n_generation,
         mutation_operator, crossover_operator, metrics_list,
-        root_seed, out_file_name, saving_method,
-        observer_metrics_list= None, comm= None,
+        pkg_dir, root_seed, out_file_name, saving_method,
+        observer_metrics_list= None,
+        comm= None, cluster_parallelization= False, cluster_time_limit_str= None, cluster_mem_free_str= None,
         restart= False, init_pop_file= None, init_mutation_rate= 0.1
         ):
     
+    if cluster_parallelization: comm= None
+
+    design_problem= MultistateSeqDesignProblem(
+        protein, 
+        protein_mpnn, 
+        metrics_list,
+        pkg_dir,
+        comm, 
+        cluster_parallelization, 
+        cluster_time_limit_str, 
+        cluster_mem_free_str)
+
     if restart:
         pop_initializer= LoadPop(init_pop_file)
     else:
@@ -119,8 +132,6 @@ def run_nsga2(
         eliminate_duplicates= False
     )
 
-    design_problem= MultistateSeqDesignProblem(protein, protein_mpnn, metrics_list, comm)
-
     if saving_method == 'by_generation':
         t0= time.time()
         results= minimize(
@@ -129,7 +140,7 @@ def run_nsga2(
             ('n_gen', n_generation),
             seed= root_seed if isinstance(root_seed, int) else sum(root_seed),
             verbose= False,
-            callback= DumpPop(protein, metrics_list, observer_metrics_list, out_file_name, comm),
+            callback= DumpPop(protein, metrics_list, observer_metrics_list, out_file_name, pkg_dir, comm, cluster_parallelization, cluster_time_limit_str, cluster_mem_free_str),
             copy_algorithm= False
         )
         t1= time.time()
@@ -143,7 +154,7 @@ def run_nsga2(
             ('n_gen', n_generation),
             seed= root_seed if isinstance(root_seed, int) else sum(root_seed),
             verbose= False,
-            callback= SavePop(protein, metrics_list, observer_metrics_list, comm),
+            callback= SavePop(protein, metrics_list, observer_metrics_list, pkg_dir, comm, cluster_parallelization, cluster_time_limit_str, cluster_mem_free_str),
             copy_algorithm= False
         )
         t1= time.time()

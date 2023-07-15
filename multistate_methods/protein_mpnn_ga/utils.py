@@ -1,6 +1,7 @@
-import os, logging, pickle, numpy as np, pandas as pd
+import os, sys, logging, time, multiprocessing, tempfile, pickle, numpy as np, pandas as pd
 from Bio.PDB import PDBParser, PDBIO
 from difflib import SequenceMatcher
+from datetime import datetime
 
 from pymoo.core.callback import Callback
 from pymoo.core.sampling import Sampling
@@ -133,38 +134,221 @@ def get_array_chunk(arr, rank, size):
         
     return arr[rank*chunk_size:(rank + 1)*chunk_size]
 
-def _evaluate_observers(observer_metrics_list, candidates, protein, comm):
-    scores= []
-    if comm is None:
-        for metric in observer_metrics_list:
-            scores.append(metric.apply(candidates, protein))
-        scores= np.vstack(scores).T
+def sge_write_submit_script(sge_script_loc, job_name, time_limit_str, mem_free_str, python_str):
+    '''
+    submit a job that requires a single core
+    use the -c tag to execute a string through the python interpreter
+    '''
+    submit_str=f'''
+#!/bin/bash
+#$ -cwd
+#$ -N {job_name}
+#$ -o {job_name}.out
+#$ -e {job_name}.err
+#$ -l h_rt={time_limit_str}
+#$ -l x86-64-v=3
+#$ -l mem_free={mem_free_str}
+#$ -l h=!qb3-atgpu17&!qb3-atgpu17
 
-    else:
-        rank= comm.Get_rank()
-        size= comm.Get_size()
+module use $HOME/software/modules
+module load python
+
+export TF_CPP_MIN_LOG_LEVEL=3
+export TF_ENABLE_ONEDNN_OPTS=0
+export CUDA_VISIBLE_DEVICES=""
+
+python3 -c '{python_str}'
+'''
+    with open(sge_script_loc, 'w') as f:
+        f.write(submit_str)
+
+def sge_submit_job(sge_script_loc):
+    '''
+    keep trying to submit the job until it is accepted by the job scheduler
+    '''
+    time_limit= 60*60 # 1 h
+    start_time= time.time()
+    
+    while time.time() - start_time < time_limit:
+        try:
+            time.sleep(np.random.randint(10, 60))
+            sge_out= os.popen(f'qsub -terse {sge_script_loc}').read() # return: <job_id>.<ini_ind>-<fin_ind>:<step>
+            job_id= int(sge_out.split('.')[0])
+        except:
+            print(f'exceptions detected while attempting to submit {sge_script_loc}')
+            continue
+        else:
+            break
+    return job_id
+
+def cluster_manage_job(sge_script_loc, out_file, cluster_time_limit_str):
+    try_limit= 10
+    job_id= sge_submit_job(sge_script_loc)
+    num_tries= 1
+    
+    submit_time= time.time()
+
+    pt= datetime.strptime(cluster_time_limit_str, '%H:%M:%S')
+    total_seconds= pt.second + pt.minute*60 + pt.hour*3600
+    time_limit= 2*total_seconds # this number can be adjusted to account for the business of the job queue
+    
+    while True:
+        time.sleep(60)
+        job_is_running= os.popen(f'qstat -j {job_id} 2>/dev/null').read()
+        if job_is_running:
+            wall_time= time.time() - submit_time
+            if wall_time < time_limit:
+                continue
+            elif num_tries < try_limit:
+                os.popen(f'qdel -f {job_id}')
+                time.sleep(60)
+                job_id= sge_submit_job(sge_script_loc)
+                submit_time= time.time()
+                num_tries+= 1
+                continue
+            else:
+                raise RuntimeError(f'output file {out_file} does not exist for the job {sge_script_loc} after {try_limit} attempts due to hanged jobs!')
+        else:
+            time.sleep(10)
+            if os.path.isfile(out_file):
+                break
+            elif num_tries < try_limit:
+                job_id= sge_submit_job(sge_script_loc)
+                submit_time= time.time()
+                num_tries+= 1
+                continue
+            else:
+                raise RuntimeError(f'output file {out_file} does not exist for the job {sge_script_loc} after {try_limit} attempts due to hanged jobs!')
+    
+    results= pickle.load(open(out_file, 'rb'))
+    return results
+
+def cluster_act_single_candidate(actions_list, candidate, protein, cluster_time_limit_str, cluster_mem_free_str, pkg_dir, candidate_ind= None, result_queue= None):
+    logger.debug(f'cluster_act_single_candidate() get the candidate {candidate} from the full candidates set')
+    if result_queue is not None:
+        assert candidate_ind is not None, 'candidate_ind cannot be None if a result_queue is passed to cluster_evaluate_single_candidate()'
+
+    try:
+        results= []
+        for action in actions_list:
+            job_dir= tempfile.TemporaryDirectory()
+            out_file= f'score.p'
+            sge_script_file= 'submit.sh'
+
+            pickle.dump(action, open(f'{job_dir.name}/action.p', 'wb'))
+            pickle.dump(candidate, open(f'{job_dir.name}/candidate.p', 'wb'))
+            pickle.dump(protein, open(f'{job_dir.name}/protein.p', 'wb'))
+
+            python_exec_str= f'import pickle, sys; sys.path.insert(0, "{pkg_dir}"); action= pickle.load(open("action.p", "rb")); candidate= pickle.load(open("candidate.p", "rb")); protein= pickle.load(open("protein.p", "rb"));result= action.apply(candidate, protein); pickle.dump(result, open("{out_file}", "wb"))'
+            
+            parent_dir= os.getcwd()
+            os.chdir(job_dir.name)
+            sge_write_submit_script(
+                sge_script_loc= sge_script_file,
+                job_name= str(action),
+                time_limit_str= cluster_time_limit_str,
+                mem_free_str= cluster_mem_free_str,
+                python_str= python_exec_str)
+            result= cluster_manage_job(sge_script_file, out_file, cluster_time_limit_str)
+            results.append(result)
+            os.chdir(parent_dir)
+            job_dir.cleanup()
+
+        logger.debug(f'cluster_act_single_candidate() received the following broadcasted results:\n{sep}\n{results}\n{sep}\n')
         
-        candidates_subset= get_array_chunk(candidates, rank, size)
-        logger.debug(f'scores (rank {rank}; observer) get the candidates_subset {candidates_subset} from the full candidates {candidates}')
-        for metric in observer_metrics_list:
-            scores.append(metric.apply(candidates_subset, protein))
-        scores= np.vstack(scores).T # reshape scores from (n_metric, n_candidate) to (n_candidate, n_metric)
-        scores= comm.gather(scores, root= 0)
-        if rank == 0: scores= np.vstack(scores)
-        scores= comm.bcast(scores, root= 0)
-        logger.debug(f'_evaluate_observers() (rank {rank}/{size}) received the following broadcasted scores:\n{sep}\n{scores}\n{sep}\n')
+        if candidate_ind is None:
+            return results
+        else:
+            result_queue.put((candidate_ind, results))
 
-    scores_df= pd.DataFrame(scores, columns= [str(metric) for metric in observer_metrics_list])
-    return scores_df
+    except Exception as e:
+        if candidate_ind is None:
+            raise e
+        else:
+            result_queue.put(e)
+
+def evaluate_candidates(
+        metrics_list,
+        candidates,
+        protein,
+        pkg_dir,
+        comm= None,
+        cluster_parallelization= False,
+        cluster_time_limit_str= None, 
+        cluster_mem_free_str= None
+    ):
+    scores= []
+
+    if cluster_parallelization == True:
+        if comm is not None:
+            logger.info('evaluate_candidates() is called with an MPI comm setting, which will be ignored because cluster_parallelization == True')
+
+        jobs= []
+        result_queue= multiprocessing.Queue()
+        
+        for candidate_ind, candidate in enumerate(candidates):
+            # need to put candidate in [] because all the metrics are designed to take in a list of candidates
+            proc= multiprocessing.Process(
+                target= cluster_act_single_candidate, 
+                args= (metrics_list, [candidate], protein, cluster_time_limit_str, cluster_mem_free_str, pkg_dir, candidate_ind, result_queue)
+            )
+            jobs.append(proc)
+            proc.start()
+        
+        # fetch results from the queue
+        results_list= []
+
+        for proc in jobs:
+            results= result_queue.get()
+            # exceptions are passed back to the main process as the result
+            if isinstance(results, Exception):
+                sys.exit('%s (found in %s)' %(results, proc))
+            results_list.append(results)
+
+        for proc in jobs:
+            proc.join()
+        
+        # unscramble the returned results
+        new_results_order= [result[0] for result in results_list]
+        assert sorted(new_results_order) == list(range(len(candidates))), 'some scores are not returned by multiprocessing!'
+        results_list_sorted= sorted(zip(new_results_order, results_list))
+        scores= np.squeeze([result[1][1] for result in results_list_sorted])
+        logger.debug(f'evaluate_candidates() (cluster) received the following broadcasted scores:\n{sep}\n{scores}\n{sep}\n')
+        return scores
+    
+    else:
+        if comm is None:
+            for metric in metrics_list:
+                scores.append(metric.apply(candidates, protein))
+            scores= np.vstack(scores).T
+        else:
+            rank= comm.Get_rank()
+            size= comm.Get_size()
+            
+            candidates_subset= get_array_chunk(candidates, rank, size)
+            logger.debug(f'scores (rank {rank}; observer) get the candidates_subset {candidates_subset} from the full candidates {candidates}')
+            for metric in metrics_list:
+                scores.append(metric.apply(candidates_subset, protein))
+            scores= np.vstack(scores).T # reshape scores from (n_metric, n_candidate) to (n_candidate, n_metric)
+            scores= comm.gather(scores, root= 0)
+            if rank == 0: scores= np.vstack(scores)
+            scores= comm.bcast(scores, root= 0)
+            logger.debug(f'evaluate_candidates() (rank {rank}/{size}) received the following broadcasted scores:\n{sep}\n{scores}\n{sep}\n')
+
+        return scores
 
 class SavePop(Callback):
-    def __init__(self, protein, metrics_list, observer_metrics_list, comm= None):
+    def __init__(self, protein, metrics_list, observer_metrics_list, pkg_dir, comm= None, cluster_parallelization= False, cluster_time_limit_str= None, cluster_mem_free_str= None):
         super().__init__()
         self.data['pop'] = []
         self.protein= protein
         self.metric_name_list= [str(metric) for metric in metrics_list]
         self.observer_metrics_list= observer_metrics_list
+        self.pkg_dir= pkg_dir
         self.comm= comm
+        self.cluster_parallelization= cluster_parallelization
+        self.cluster_time_limit_str= cluster_time_limit_str
+        self.cluster_mem_free_str= cluster_mem_free_str
 
     def notify(self, algorithm):
         metrics= algorithm.pop.get('F')
@@ -174,22 +358,35 @@ class SavePop(Callback):
         pop_df['candidate']= [''.join(candidate) for candidate in candidates]
 
         if self.observer_metrics_list is not None:
-            observer_metrics_scores= _evaluate_observers(self.observer_metrics_list, candidates, self.protein, self.comm)
-            pop_df= pd.concat([pop_df, observer_metrics_scores], axis= 1)
+            observer_metrics_scores= evaluate_candidates(
+                self.observer_metrics_list,
+                candidates,
+                self.protein,
+                self.pkg_dir,
+                self.comm,
+                self.cluster_parallelization,
+                self.cluster_time_limit_str,
+                self.cluster_mem_free_str)
+            observer_metrics_scores_df= pd.DataFrame(observer_metrics_scores, columns= [str(metric) for metric in self.observer_metrics_list])
+            pop_df= pd.concat([pop_df, observer_metrics_scores_df], axis= 1)
 
         self.data['pop'].append(pop_df)
 
         logger.debug(f'SavePop returned the following population:\n{sep}\n{pop_df}\n{sep}\n')
 
 class DumpPop(Callback):
-    def __init__(self, protein, metrics_list, observer_metrics_list, out_file_name, comm= None):
+    def __init__(self, protein, metrics_list, observer_metrics_list, out_file_name, pkg_dir, comm= None, cluster_parallelization= False, cluster_time_limit_str= None, cluster_mem_free_str= None):
         super().__init__()
         self.protein= protein
         self.metric_name_list= [str(metric) for metric in metrics_list]
         self.observer_metrics_list= observer_metrics_list
         self.out_file_name= out_file_name
         self.iteration= 0
+        self.pkg_dir= pkg_dir
         self.comm= comm
+        self.cluster_parallelization= cluster_parallelization
+        self.cluster_time_limit_str= cluster_time_limit_str
+        self.cluster_mem_free_str= cluster_mem_free_str
 
     def notify(self, algorithm):
         metrics= algorithm.pop.get('F')
@@ -199,8 +396,17 @@ class DumpPop(Callback):
         pop_df['candidate']= [''.join(candidate) for candidate in candidates]
 
         if self.observer_metrics_list is not None:    
-            observer_metrics_scores= _evaluate_observers(self.observer_metrics_list, candidates, self.protein, self.comm)
-            pop_df= pd.concat([pop_df, observer_metrics_scores], axis= 1)
+            observer_metrics_scores= evaluate_candidates(
+                self.observer_metrics_list,
+                candidates,
+                self.protein,
+                self.pkg_dir,
+                self.comm,
+                self.cluster_parallelization,
+                self.cluster_time_limit_str,
+                self.cluster_mem_free_str)
+            observer_metrics_scores_df= pd.DataFrame(observer_metrics_scores, columns= [str(metric) for metric in self.observer_metrics_list])
+            pop_df= pd.concat([pop_df, observer_metrics_scores_df], axis= 1)
 
         if (self.comm is None) or (self.comm.Get_rank() == 0):
             pickle.dump(pop_df, open(f'{self.out_file_name}_{self.iteration}.p', 'wb'))

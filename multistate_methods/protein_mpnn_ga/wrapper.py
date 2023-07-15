@@ -115,7 +115,7 @@ class ObjectiveESM(object):
                     output_df= pd.read_csv(out.name, sep= ',')
                 except:
                     # The script uses stderr to print progression info, so only check for error when attempting to read the output file
-                    logger.exception(f'Command {proc.args} returned non-zero exist status {proc.returncode} with the stderr\n{sep}{proc_error.decode()}{sep}\n')
+                    logger.exception(f'Command {proc.args} returned non-zero exist status {proc.returncode} with the input\n{sep}\n{input_fa}\n{sep}\n and the stderr\n{sep}\n{proc_error.decode()}n{sep}\n')
                     sys.exit(1)
                 output_arr= output_df[self.model_name].str.split(pat= ';', expand= True).to_numpy(dtype= float)
                 out.close()
@@ -126,9 +126,10 @@ class ObjectiveESM(object):
                 t1= time.time()
                 logger.info(f'ESM (device: {self.device}, name= {self.name}) run time: {t1 - t0} s.\n')
                 try:
+                    time.sleep(5)
                     output_df= pd.read_csv(io.StringIO(proc_output.decode()), sep= ',')
                 except:
-                    logger.exception(f'Command {proc.args} returned non-zero exist status {proc.returncode} with the stderr\n{sep}{proc_error.decode()}{sep}\n')
+                    logger.exception(f'Command {proc.args} returned non-zero exist status {proc.returncode} with the input\n{sep}\n{input_fa}\n{sep}\n and the stderr\n{sep}\n{proc_error.decode()}\n{sep}\n')
                     sys.exit(1)
                 output_arr= output_df[self.model_name].to_numpy(dtype= float)
             
