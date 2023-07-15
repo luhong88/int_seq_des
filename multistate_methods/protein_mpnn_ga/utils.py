@@ -231,7 +231,7 @@ def cluster_act_single_candidate(actions_list, candidate, protein, cluster_time_
     try:
         results= []
         for action in actions_list:
-            job_dir= tempfile.TemporaryDirectory()
+            job_dir= tempfile.TemporaryDirectory(dir= '/wynton/home/kortemme/lhong/multistate_methods/examples/')
             out_file= f'score.p'
             sge_script_file= 'submit.sh'
 

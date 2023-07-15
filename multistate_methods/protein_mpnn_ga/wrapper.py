@@ -95,12 +95,39 @@ class ObjectiveESM(object):
         Can handle multiple sequences
         '''
         with Device(self.device):
+            esm_dir= tempfile.TemporaryDirectory()
             input_fa= ''
             for candidate_ind, candidate in enumerate(candidates):
                 full_seq= protein.get_chain_full_seq(self.chain_id, candidate, drop_terminal_missing_res= False, drop_internal_missing_res= False)
                 input_fa+= f'>seq_{candidate_ind}\n{full_seq}\n'
-
+            with open(f'{esm_dir.name}/input_seq.fa', 'w') as f:
+                f.write(input_fa)
+            
             exec_str= self.exec
+            exec_str+= ['-i', f'{esm_dir.name}/input_seq.fa']
+            out_f= f'{esm_dir.name}/scores.out'
+            if position_wise:
+                exec_str+= ['--positionwise', out_f]
+            else:
+                exec_str+= ['-o', out_f]
+
+            t0= time.time()
+            proc= subprocess.run(exec_str, stdout= subprocess.PIPE, stderr= subprocess.PIPE, check= False)
+            t1= time.time()
+            logger.info(f'ESM (device: {self.device}, name= {self.name}, position_wise) run time: {t1 - t0} s.\n')                    
+            try:
+                output_df= pd.read_csv(out_f, sep= ',')
+                if position_wise:
+                    output_arr= output_df[self.model_name].str.split(pat= ';', expand= True).to_numpy(dtype= float)
+                else:
+                    output_arr= output_df[self.model_name].to_numpy(dtype= float)
+            except:
+                # The script uses stderr to print progression info, so only check for error when attempting to read the output file
+                logger.exception(f'Command {proc.args} returned non-zero exist status {proc.returncode} with the input\n{sep}\n{input_fa}\n{sep}\nand the stdout\n{sep}\n{proc.stdout.decode()}\n{sep}\nand the stderr\n{sep}\n{proc.stderr.decode()}\n{sep}\n')
+                sys.exit(1)
+            esm_dir.cleanup()
+            
+            '''
             if position_wise:
                 out= tempfile.NamedTemporaryFile(suffix= str(hash(input_fa)))
                 exec_str+= ['--positionwise', out.name]
@@ -132,8 +159,9 @@ class ObjectiveESM(object):
                     logger.exception(f'Command {proc.args} returned non-zero exist status {proc.returncode} with the input\n{sep}\n{input_fa}\n{sep}\n and the stderr\n{sep}\n{proc_error.decode()}\n{sep}\n')
                     sys.exit(1)
                 output_arr= output_df[self.model_name].to_numpy(dtype= float)
+            '''
             
-            logger.debug(f'ESM (device: {self.device}, name= {self.name}) was called with the command:\n{sep}\n{exec_str}\n{sep}\nstdout:\n{sep}\n{proc_output.decode()}\n{sep}\nstderr:\n{sep}\n{proc_error.decode()}\n{sep}\n')
+            logger.debug(f'ESM (device: {self.device}, name= {self.name}) was called with the command:\n{sep}\n{exec_str}\n{sep}\nstdout:\n{sep}\n{proc.stdout.decode()}\n{sep}\nstderr:\n{sep}\n{proc.stderr.decode()}\n{sep}\n')
 
             neg_output_arr= -output_arr if self.sign_flip else output_arr # take the negative because the algorithm expects a minimization problem
             logger.debug(f'ESM (device: {self.device}, name= {self.name}) apply() returned the following results:\n{sep}\n{neg_output_arr}\n{sep}\n')
