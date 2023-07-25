@@ -29,7 +29,7 @@ class MutationMethod(object):
         self.esm_model= esm_model
         self.esm_device= esm_device
 
-        self.name= f'choose_pos_method_{choose_pos_method}_choose_AA_method_{choose_AA_method}_prob_{prob}'
+        self.name= f'{choose_pos_method}+{choose_AA_method}_{prob}'
 
     def __str__(self):
         return self.name
@@ -322,37 +322,49 @@ class MutationMethod(object):
         return new_chain
 
 class ProteinMutation(Mutation):
-    def __init__(self, method_list, root_seed, pkg_dir, comm= None, cluster_parallelization= False, cluster_time_limit_str= None, cluster_mem_free_str= None, **kwargs):
+    def __init__(self, method_list, root_seed, pkg_dir, pop_size= None, comm= None, cluster_parallelization= False, cluster_time_limit_str= None, cluster_mem_free_str= None, **kwargs):
         super().__init__(prob=1.0, prob_var=None, **kwargs)
+        self.uninitialized_method_list= method_list
+        self.root_seed= root_seed
         self.pkg_dir= pkg_dir
+        self.pop_size= pop_size
         self.comm= comm
         self.cluster_parallelization= cluster_parallelization
         self.cluster_time_limit_str= cluster_time_limit_str
         self.cluster_mem_free_str= cluster_mem_free_str
         self.class_seed= class_seeds[self.__class__.__name__]
-        
-        if self.comm is None:
-            size= 1
+        self.call_counter= 0 # increment this counter each time the method _do() is called; for setting RNG.
+
+    def _do(self, problem, candidates, **kwargs):
+        logger.debug(f'ProteinMutation (call_counter = {self.call_counter}) received the following input candidates:\n{sep}\n{candidates}\n{sep}\n')
+
+        # reset RNG
+        if self.cluster_parallelization:
+            size= self.pop_size
         else:
-            size= self.comm.Get_size()
-        self.rng_list= [np.random.default_rng([self.class_seed, rank, root_seed]) for rank in range(size)]
+            if self.comm is None:
+                size= 1
+            else:
+                size= self.comm.Get_size()
+        self.rng_list= [np.random.default_rng([self.class_seed, rank, self.call_counter, self.root_seed]) for rank in range(size)]
 
         method_list_rng_list= []
         for rank in range(size):
-            method_list_rng= deepcopy(method_list)
+            method_list_rng= deepcopy(self.uninitialized_method_list)
             for method_ind, method in enumerate(method_list_rng):
-                method.set_rng(np.random.default_rng([self.class_seed, rank, method_ind, root_seed]))
+                method.set_rng(np.random.default_rng([self.class_seed, rank, method_ind, self.call_counter, self.root_seed]))
             method_list_rng_list.append(method_list_rng)
-        self.method_list= method_list_rng_list
+        method_list= method_list_rng_list
+        self.call_counter+= 1
 
-    def _do(self, problem, candidates, **kwargs):
+
         if self.cluster_parallelization:
-            rank= 0
             jobs= []
             result_queue= multiprocessing.Queue()
             
             for candidate_ind, candidate in enumerate(candidates):
-                chosen_method= self.rng_list[rank].choice(self.method_list[rank], p= [method.prob for method in self.method_list[rank]])
+                rank= candidate_ind
+                chosen_method= self.rng_list[rank].choice(method_list[rank], p= [method.prob for method in method_list[rank]])
                 proc= multiprocessing.Process(
                     target= cluster_act_single_candidate, 
                     args= ([chosen_method], candidate, problem.protein, self.cluster_time_limit_str, self.cluster_mem_free_str, self.pkg_dir, candidate_ind, result_queue)
@@ -387,7 +399,7 @@ class ProteinMutation(Mutation):
             if self.comm is None:
                 rank= 0
                 for candidate in candidates:
-                    chosen_method= self.rng_list[rank].choice(self.method_list[rank], p= [method.prob for method in self.method_list[rank]])
+                    chosen_method= self.rng_list[rank].choice(method_list[rank], p= [method.prob for method in method_list[rank]])
                     proposed_candidate= chosen_method.apply(candidate, problem.protein)
                     Xp.append(proposed_candidate)
                     logger.debug(f'ProteinMutation returned the following results:\n{sep}\nold_candidate: {candidate}\nchosen_method: {str(chosen_method)}\nnew_candidate: {proposed_candidate}\n{sep}\n')
@@ -398,7 +410,7 @@ class ProteinMutation(Mutation):
                 size= self.comm.Get_size()
                 
                 candidates_subset= get_array_chunk(candidates, rank, size)
-                chosen_method= self.rng_list[rank].choice(self.method_list[rank], p= [method.prob for method in self.method_list[rank]])
+                chosen_method= self.rng_list[rank].choice(method_list[rank], p= [method.prob for method in method_list[rank]])
                 
                 for candidate in candidates_subset:
                     proposed_candidate= chosen_method.apply(candidate, problem.protein)

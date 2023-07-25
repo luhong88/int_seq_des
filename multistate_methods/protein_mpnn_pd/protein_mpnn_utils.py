@@ -1450,7 +1450,7 @@ class ProteinMPNN(nn.Module):
                         else:
                             reduced_probs= probs[sample]
                         
-                        if reduced_probs.size(0) ==1:
+                        if reduced_probs.size(0) == 1:
                             # if no tied positions then sample from ave_probs
                             S_t_repeat = torch.multinomial(ave_probs, 1).squeeze(-1)
                         else:

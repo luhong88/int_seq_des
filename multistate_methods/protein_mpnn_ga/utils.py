@@ -146,7 +146,7 @@ def sge_write_submit_script(sge_script_loc, job_name, time_limit_str, mem_free_s
 #$ -o {job_name}.out
 #$ -e {job_name}.err
 #$ -l h_rt={time_limit_str}
-#$ -l x86-64-v=3
+{"#$ -l x86-64-v=3" if "af2rank" in job_name else ""}
 #$ -l mem_free={mem_free_str}
 #$ -l h=!qb3-atgpu17&!qb3-atgpu17
 
