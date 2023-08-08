@@ -3,6 +3,7 @@ from Bio import SeqIO
 from multistate_methods.protein_mpnn_ga.af2rank import af2rank
 from multistate_methods.protein_mpnn_ga.protein import DesignedProtein
 from multistate_methods.protein_mpnn_ga.utils import get_logger, sep, Device
+from inspect import signature
 
 logger= get_logger(__name__)
 
@@ -178,6 +179,27 @@ class ObjectiveDebug(object):
     def apply(self, candidates, protein):
         results= np.random.rand(len(candidates))
         logger.debug(f'{str(self)} objective returned the following results:\n{sep}\n{results}\n{sep}\n')
+        return results
+    
+class ObjectiveCombine(object):
+    def __init__(self, objectives, combine_fxn):
+        assert len(signature(combine_fxn).parameters) == len(objectives), f'The number of arguments accepted by {combine_fxn.__name__} is not equal to the length of the input objective functions list!'
+
+        self.objectives= objectives
+        self.combine_fxn= combine_fxn
+        self.name= f'combine_{"+".join([str(objective) for objective in objectives])}_using_{combine_fxn.__name__}'
+
+    def __str__(self):
+        return self.name
+
+    def apply(self, candidates, protein):
+        results= []
+        for candidate in candidates:
+            obj_res= [objective.apply(candidate, protein) for objective in self.objectives]
+            obj_res_comb= self.combine_fxn(*obj_res)
+            results.append(obj_res_comb)
+        results= np.array(results)
+        logger.debug(f'{str(self)} objective received the following objectives and returned the following results:\n{sep}\n{results}\n{sep}\n')
         return results
     
 class ProteinMPNNWrapper(object):

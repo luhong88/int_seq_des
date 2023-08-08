@@ -55,9 +55,10 @@ class NativeSeqRecovery(object):
         return self.name
 
     def apply(self, candidates, protein):
-        WT_seq= ''.join(protein.get_candidate())
-        results= [SequenceMatcher(None, WT_seq, ''.join(candidate)).ratio() for candidate in candidates]
-        return results
+        WT_arr= np.asarray(protein.get_candidate())
+        candidates_arr= np.asarray(candidates)
+        identities= np.sum(candidates_arr == WT_arr, axis= -1)/len(WT_arr)
+        return identities
 
 def _equidistant_points(n_pts, mol_radius, min_dist):
     '''
