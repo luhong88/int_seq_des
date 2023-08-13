@@ -1,4 +1,4 @@
-import os, sys, logging, time, multiprocessing, tempfile, pickle, numpy as np, pandas as pd
+import os, sys, logging, time, datetime, multiprocessing, tempfile, pickle, numpy as np, pandas as pd
 from Bio.PDB import PDBParser, PDBIO
 from difflib import SequenceMatcher
 from datetime import datetime
@@ -167,12 +167,15 @@ def sge_submit_job(sge_script_loc):
     '''
     keep trying to submit the job until it is accepted by the job scheduler
     '''
+    current_time= datetime.datetime.now()
+    rng= np.random.default_rng([current_time.year, current_time.month, current_time.hour, current_time.minute, current_time.second, current_time.microsecond])
+
     time_limit= 60*60 # 1 h
     start_time= time.time()
     
     while time.time() - start_time < time_limit:
         try:
-            time.sleep(np.random.randint(10, 60))
+            time.sleep(rng.integers(10, 60))
             sge_out= os.popen(f'qsub -terse {sge_script_loc}').read() # return: <job_id>.<ini_ind>-<fin_ind>:<step>
             job_id= int(sge_out.split('.')[0])
         except:
@@ -183,6 +186,9 @@ def sge_submit_job(sge_script_loc):
     return job_id
 
 def cluster_manage_job(sge_script_loc, out_file, cluster_time_limit_str):
+    current_time= datetime.datetime.now()
+    rng= np.random.default_rng([current_time.year, current_time.month, current_time.hour, current_time.minute, current_time.second, current_time.microsecond])
+
     try_limit= 10
     job_id= sge_submit_job(sge_script_loc)
     num_tries= 1
@@ -194,7 +200,7 @@ def cluster_manage_job(sge_script_loc, out_file, cluster_time_limit_str):
     time_limit= 2*total_seconds # this number can be adjusted to account for the business of the job queue
     
     while True:
-        time.sleep(60)
+        time.sleep(rng.integers(60, 180))
         job_is_running= os.popen(f'qstat -j {job_id} 2>/dev/null').read()
         if job_is_running:
             wall_time= time.time() - submit_time
@@ -275,11 +281,10 @@ def evaluate_candidates(
         pkg_dir,
         comm= None,
         cluster_parallelization= False,
+        cluster_parallelize_metrics= False,
         cluster_time_limit_str= None, 
         cluster_mem_free_str= None
     ):
-    scores= []
-
     if cluster_parallelization == True:
         if comm is not None:
             logger.info('evaluate_candidates() is called with an MPI comm setting, which will be ignored because cluster_parallelization == True')
@@ -288,13 +293,22 @@ def evaluate_candidates(
         result_queue= multiprocessing.Queue()
         
         for candidate_ind, candidate in enumerate(candidates):
-            # need to put candidate in [] because all the metrics are designed to take in a list of candidates
-            proc= multiprocessing.Process(
-                target= cluster_act_single_candidate, 
-                args= (metrics_list, [candidate], protein, cluster_time_limit_str, cluster_mem_free_str, pkg_dir, candidate_ind, result_queue)
-            )
-            jobs.append(proc)
-            proc.start()
+            if cluster_parallelize_metrics:
+                for metric_ind, metric in enumerate(metrics_list):
+                    # need to put candidate in [] because all the metrics are designed to take in a list of candidates
+                    proc= multiprocessing.Process(
+                        target= cluster_act_single_candidate, 
+                        args= ([metric], [candidate], protein, cluster_time_limit_str, cluster_mem_free_str, pkg_dir, (candidate_ind, metric_ind), result_queue)
+                    )
+                    jobs.append(proc)
+                    proc.start()
+            else:
+                proc= multiprocessing.Process(
+                    target= cluster_act_single_candidate, 
+                    args= (metrics_list, [candidate], protein, cluster_time_limit_str, cluster_mem_free_str, pkg_dir, candidate_ind, result_queue)
+                )
+                jobs.append(proc)
+                proc.start()
         
         # fetch results from the queue
         results_list= []
@@ -310,11 +324,23 @@ def evaluate_candidates(
             proc.join()
         
         # unscramble the returned results
-        new_results_order= [result[0] for result in results_list]
-        assert sorted(new_results_order) == list(range(len(candidates))), 'some scores are not returned by multiprocessing!'
-        results_list_sorted= sorted(zip(new_results_order, results_list))
-        scores= np.squeeze([result[1][1] for result in results_list_sorted])
-        logger.debug(f'evaluate_candidates() (cluster) received the following broadcasted scores:\n{sep}\n{scores}\n{sep}\n')
+        if cluster_parallelize_metrics:
+            scores= np.empty((len(candidate), len(metrics_list)))
+            scores[:]= np.nan
+            for result_ind, result in results_list:
+                candidate_ind, metric_ind= result_ind
+                scores[candidate_ind, metric_ind]= np.squeeze(result)
+            has_missing_values= np.any(np.isnan(scores))
+            assert not has_missing_values, 'some scores are not returned by multiprocessing!'
+            logger.debug(f'evaluate_candidates() (cluster, cluster_parallelize_metrics == True) received the following broadcasted scores:\n{sep}\n{scores}\n{sep}\n')
+
+        else:
+            new_results_order= [result[0] for result in results_list]
+            assert sorted(new_results_order) == list(range(len(candidates))), 'some scores are not returned by multiprocessing!'
+            results_list_sorted= sorted(zip(new_results_order, results_list))
+            scores= np.squeeze([result[1][1] for result in results_list_sorted])
+            logger.debug(f'evaluate_candidates() (cluster, cluster_parallelize_metrics == False) received the following broadcasted scores:\n{sep}\n{scores}\n{sep}\n')
+            
         return scores
     
     else:

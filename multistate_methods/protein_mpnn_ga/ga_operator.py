@@ -501,6 +501,7 @@ class MultistateSeqDesignProblem(Problem):
             self.pkg_dir,
             comm= self.comm,
             cluster_parallelization= self.cluster_parallelization,
+            cluster_parallelize_metrics= True,
             cluster_time_limit_str= self.cluster_time_limit_str, 
             cluster_mem_free_str= self.cluster_mem_free_str
         )
