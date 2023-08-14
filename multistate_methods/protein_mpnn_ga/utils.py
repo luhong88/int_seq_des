@@ -1,4 +1,4 @@
-import os, sys, logging, time, datetime, multiprocessing, tempfile, pickle, numpy as np, pandas as pd
+import os, sys, logging, time, multiprocessing, tempfile, pickle, numpy as np, pandas as pd
 from Bio.PDB import PDBParser, PDBIO
 from difflib import SequenceMatcher
 from datetime import datetime
@@ -167,7 +167,7 @@ def sge_submit_job(sge_script_loc):
     '''
     keep trying to submit the job until it is accepted by the job scheduler
     '''
-    current_time= datetime.datetime.now()
+    current_time= datetime.now()
     rng= np.random.default_rng([current_time.year, current_time.month, current_time.hour, current_time.minute, current_time.second, current_time.microsecond])
 
     time_limit= 60*60 # 1 h
@@ -186,7 +186,7 @@ def sge_submit_job(sge_script_loc):
     return job_id
 
 def cluster_manage_job(sge_script_loc, out_file, cluster_time_limit_str):
-    current_time= datetime.datetime.now()
+    current_time= datetime.now()
     rng= np.random.default_rng([current_time.year, current_time.month, current_time.hour, current_time.minute, current_time.second, current_time.microsecond])
 
     try_limit= 10
@@ -325,7 +325,7 @@ def evaluate_candidates(
         
         # unscramble the returned results
         if cluster_parallelize_metrics:
-            scores= np.empty((len(candidate), len(metrics_list)))
+            scores= np.empty((len(candidates), len(metrics_list)))
             scores[:]= np.nan
             for result_ind, result in results_list:
                 candidate_ind, metric_ind= result_ind

@@ -183,7 +183,7 @@ class ObjectiveDebug(object):
     
 class ObjectiveCombine(object):
     def __init__(self, objectives, combine_fxn):
-        assert len(signature(combine_fxn).parameters) == len(objectives), f'The number of arguments accepted by {combine_fxn.__name__} is not equal to the length of the input objective functions list!'
+        #assert len(signature(combine_fxn).parameters) == len(objectives), f'The number of arguments accepted by {combine_fxn.__name__} is not equal to the length of the input objective functions list!'
 
         self.objectives= objectives
         self.combine_fxn= combine_fxn
@@ -196,7 +196,7 @@ class ObjectiveCombine(object):
         results= []
         for candidate in candidates:
             obj_res= [objective.apply(candidate, protein) for objective in self.objectives]
-            obj_res_comb= self.combine_fxn(*obj_res)
+            obj_res_comb= self.combine_fxn(obj_res)
             results.append(obj_res_comb)
         results= np.array(results)
         logger.debug(f'{str(self)} objective received the following objectives and returned the following results:\n{sep}\n{results}\n{sep}\n')
