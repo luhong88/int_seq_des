@@ -19,7 +19,7 @@ class_seeds= {
 def get_logger(module_name):
     logger= logging.getLogger(module_name)
     logger.propagate= False
-    logger.setLevel(logging.WARN)
+    logger.setLevel(logging.DEBUG)
     c_handler= logging.StreamHandler()
     c_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
     logger.addHandler(c_handler)
