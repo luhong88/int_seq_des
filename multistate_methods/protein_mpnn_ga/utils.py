@@ -19,7 +19,7 @@ class_seeds= {
 def get_logger(module_name):
     logger= logging.getLogger(module_name)
     logger.propagate= False
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(logging.WARN)
     c_handler= logging.StreamHandler()
     c_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
     logger.addHandler(c_handler)
@@ -140,6 +140,8 @@ def sge_write_submit_script(sge_script_loc, job_name, time_limit_str, mem_free_s
     submit a job that requires a single core
     use the -c tag to execute a string through the python interpreter
     '''
+    job_name= job_name[:100] # truncate long job names
+
     submit_str=f'''
 #!/bin/bash
 #$ -cwd
