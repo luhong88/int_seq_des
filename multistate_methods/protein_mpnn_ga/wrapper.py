@@ -193,12 +193,9 @@ class ObjectiveCombine(object):
         return self.name
 
     def apply(self, candidates, protein):
-        results= []
-        for candidate in candidates:
-            obj_res= [objective.apply(candidate, protein) for objective in self.objectives]
-            obj_res_comb= self.combine_fxn(obj_res)
-            results.append(obj_res_comb)
-        results= np.array(results)
+        logger.debug(f'{str(self)} objective called with the candidates:\n{sep}\n{candidates}\n{sep}\n')
+        obj_res= np.array([objective.apply(candidates, protein) for objective in self.objectives]).T
+        results= np.array([self.combine_fxn(res) for res in obj_res])
         logger.debug(f'{str(self)} objective received the following objectives and returned the following results:\n{sep}\n{results}\n{sep}\n')
         return results
     

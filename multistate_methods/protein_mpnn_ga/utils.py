@@ -346,6 +346,7 @@ def evaluate_candidates(
         return scores
     
     else:
+        scores= []
         if comm is None:
             for metric in metrics_list:
                 scores.append(metric.apply(candidates, protein))
