@@ -99,6 +99,8 @@ class Protein(object):
         '''
         self.design_seq= design_seq
         self.chains_neighbors_list= chains_neighbors_list
+
+        # check that the 
         
         updated_chains_list= []
         for chain in chains_list:
@@ -222,9 +224,10 @@ class Protein(object):
         logger.debug(f'candidate_to_chain_des_pos() returned the following results:\n{sep}\ncandidate_des_pos_list: {candidate_des_pos_list}\nchain_id: {chain_id}; drop_terminal_missing_res: {drop_internal_missing_res}; drop_internal_missing_res: {drop_internal_missing_res}\nchain_des_pos_list: {chain_des_pos_list}\n{sep}\n')
         return chain_des_pos_list
 
-    def parse_pdbs(self):
+    def parse_pdbs(self, pdbs_list= None):
         combined_pdb_file_dir= tempfile.TemporaryDirectory()
-        pdbs_list= glob.glob(f'{self.pdb_files_dir}/*.pdb')
+        if pdbs_list is None:
+            pdbs_list= glob.glob(f'{self.pdb_files_dir}/*.pdb')
         merge_pdb_files(pdbs_list, f'{combined_pdb_file_dir.name}/combined_pdb.pdb')
 
         out= tempfile.NamedTemporaryFile()
@@ -415,3 +418,69 @@ class DesignedProtein(Protein):
             wt_protein.helper_scripts_dir
         )
     
+class SingleStateProtein(Protein):
+    '''
+    For ProteinMPNN scoring only
+    '''
+    def __init__(self, multistate_protein, chains_sublist, pdb_file_name):
+
+        '''
+        The chains in the chains_sublist and pdb file should match
+        '''
+        chains_sublist.sort()
+        self.chains_sublist= chains_sublist
+
+        tied_res_sublist= []
+        for tied_res in multistate_protein.design_seq:
+            res_sublist= [res for res in tied_res if res.chain_id in chains_sublist]
+            new_tied_res= TiedResidue(*res_sublist)
+            tied_res_sublist.append(new_tied_res)
+        self.design_seq= DesignSequence(*tied_res_sublist)
+
+        self.chains_neighbors_list= [lst for lst in multistate_protein.chains_neighbors_list if set(chains_sublist) & set(lst)]
+
+        self.chains_list= [chain for chain in multistate_protein.chains_list if chain.chain_id in chains_sublist]
+        self.chains_dict= {chain.chain_id: chain for chain in self.chains_list}
+
+        self.helper_scripts_dir= multistate_protein.helper_scripts_dir
+        
+        self.parsed_pdb_json, parsed_pdb_handle= self.parse_pdbs(pdbs_list= [f'{multistate_protein.pdb_files_dir}/{pdb_file_name}.pdb'])
+        self.parsed_fixed_chains= self.parse_fixed_chains(parsed_pdb_handle)
+        self.parsed_fixed_positions= self.parse_fixed_positions(parsed_pdb_handle)
+        self.parsed_tied_positions= None
+
+        parsed_pdb_handle.close()
+
+        if len(chains_sublist) != self.parsed_pdb_json['json']['num_of_chains']:
+            raise ValueError(f'The number of chains found in the input pdb file ({pdb_file_name}) does not match the number of chains provided in the chains_sublist ({chains_sublist})')
+
+        logger.debug(f'A SingleStateProtein object is created with chains {chains_sublist} and pdb file {pdb_file_name}')
+
+    def candidate_to_chain_des_pos(self, *args, **kwargs):
+        raise AttributeError()
+    
+    def parse_tied_positions(self):
+        raise AttributeError()
+    
+    def candidates_to_full_seqs(self, candidates):
+        logger.debug(f'candidates_to_full_seqs (SingleStateProtein) is called with the following candidates:\n{sep}\n{candidates}\n{sep}\n')
+
+        full_seqs= []
+        for candidate in candidates:
+            parsed_seqs= []
+            for chain_id in self.chains_sublist:
+                parsed_seq= self.get_chain_full_seq(
+                    chain_id= chain_id, 
+                    candidate= candidate, 
+                    drop_terminal_missing_res= True, 
+                    drop_internal_missing_res= False, 
+                    replace_missing_residues_with= 'X' # ProteinMPNN uses X to represent gap
+                )
+
+                parsed_seqs.append(parsed_seq)
+
+            full_seqs.append('/'.join(parsed_seqs))
+
+        logger.debug(f'candidates_to_full_seqs (SingleStateProtein) returned with the following sequences:\n{sep}\n{full_seqs}\n{sep}\n')
+
+        return full_seqs

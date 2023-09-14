@@ -1,8 +1,8 @@
 import os, io, sys, subprocess, tempfile, time, numpy as np, pandas as pd
 from Bio import SeqIO
 from multistate_methods.protein_mpnn_ga.af2rank import af2rank
-from multistate_methods.protein_mpnn_ga.protein import DesignedProtein
-from multistate_methods.protein_mpnn_ga.utils import get_logger, sep, Device
+from multistate_methods.protein_mpnn_ga.protein import DesignedProtein, SingleStateProtein
+from multistate_methods.protein_mpnn_ga.utils import npz_to_dict, get_logger, sep, Device
 from inspect import signature
 
 logger= get_logger(__name__)
@@ -291,5 +291,59 @@ class ProteinMPNNWrapper(object):
         candidates= self.design_seqs_to_candidates(fa_records, candidate_chains_to_design, base_candidate)
         return candidates
 
-    def score(self):
-        raise NotImplementedError()
+    def score(self, scoring_mode, chains_sublist, pdb_file_name, candidates= None, num_seqs= 1, batch_size= 1, seed= None):
+        '''
+        Note here that the temperature setting has no effect on the output scores.
+        Only the --score_only mode is configured in ProteinMPNN to take in an input FASTA file.
+        To score candidates in the other modes is not implemented.
+        '''
+        ss_protein= SingleStateProtein(self.protein, chains_sublist, pdb_file_name)
+        
+        if scoring_mode not in ['score_only', 'conditional_probs_only', 'conditional_probs_only_backbone', 'unconditional_probs_only']:
+            raise ValueError(f'Unrecognized scoring_mode {scoring_mode}')
+        if candidates is not None and scoring_mode in ['conditional_probs_only', 'conditional_probs_only_backbone', 'unconditional_probs_only']:
+            raise NotImplementedError()
+        
+        score_exec_str= [f'--{scoring_mode}', '1']
+        # conditional_probs_only_backbone can only be activated if conditional_probs_only is also turned on
+        if scoring_mode == 'conditional_probs_only_backbone':
+            score_exec_str+=  ['--conditional_probs_only', '1']
+        
+        out_dir, file_loc_exec_str= ss_protein.dump_jsons()
+        file_loc_exec_str+= ['--out_folder', out_dir.name] # override the out folder setting when the wrapper was init.
+
+        if scoring_mode == 'score_only' and candidates is not None:
+            input_seqs= ss_protein.candidates_to_full_seqs(candidates)
+            input_seqs_f= f'{out_dir.name}/input_seqs.fa'
+            with open(input_seqs_f, 'w') as f:
+                for seq_ind, seq in enumerate(input_seqs):
+                    f.write(f'>des_seq_{seq_ind}\n{seq}\n')
+            score_exec_str+= ['--path_to_fasta', input_seqs_f]
+
+        exec_str= self.exec_str + file_loc_exec_str + score_exec_str + ['--num_seq_per_target', str(num_seqs), '--batch_size', str(batch_size), '--seed', str(seed)]
+        if '--write_to_stdout' in exec_str: exec_str.remove('--write_to_stdout')
+
+        with Device(self.device):
+            t0= time.time()
+            proc= subprocess.run(exec_str, stdout= subprocess.PIPE, stderr= subprocess.PIPE, check= False)
+            t1= time.time()
+            logger.info(f'ProteinMPNN (device: {self.device}) run time: {t1 - t0} s.')
+            if proc.stderr:
+                raise RuntimeError(f'Command {proc.args} returned non-zero exist status {proc.returncode} with the stderr\n{proc.stderr.decode()}')
+            logger.debug(f'ProteinMPNN (device: {self.device}) was called with the command:\n{sep}\n{exec_str}\n{sep}\nstdout:\n{sep}\n{proc.stdout.decode()}\n{sep}\nstderr:\n{sep}\n{proc.stderr.decode()}\n{sep}\n')
+
+        pdb_file_name= 'combined_pdb' # the pdb file name will always be combined_pdb because of the pdb parsing/merging step
+        if scoring_mode == 'score_only':
+            if candidates is None:
+                outputs= [npz_to_dict(np.load(f'{out_dir.name}/{scoring_mode}/{pdb_file_name}_pdb.npz'))]
+            else:
+                outputs= [npz_to_dict(np.load(f'{out_dir.name}/{scoring_mode}/{pdb_file_name}_fasta_{ind + 1}.npz')) for ind in range(len(candidates))]
+        elif scoring_mode in ['conditional_probs_only', 'conditional_probs_only_backbone']:
+            outputs= [npz_to_dict(np.load(f'{out_dir.name}/conditional_probs_only/{pdb_file_name}.npz'))]
+        elif scoring_mode == 'unconditional_probs_only':
+            outputs= [npz_to_dict(np.load(f'{out_dir.name}/{scoring_mode}/{pdb_file_name}.npz'))]
+        assert False
+        out_dir.cleanup()
+
+        return outputs
+        

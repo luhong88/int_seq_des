@@ -28,6 +28,11 @@ def get_logger(module_name):
 
 logger= get_logger(__name__)
 
+def npz_to_dict(npz_obj):
+    keys= npz_obj.files
+    new_dict= {k: npz_obj[k] for k in keys}
+    return new_dict
+
 # a way to foce cpu computation
 class Device(object):
     def __init__(self, device):
