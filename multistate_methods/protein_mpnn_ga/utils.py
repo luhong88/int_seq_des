@@ -16,6 +16,16 @@ class_seeds= {
     'ProteinSampling': 501129,
 }
 
+# This function can be passed to sort() or the following custom argsort() to sort chain id into capital letter, lowercase letter, and then numerics
+def sort_order(x): return x.isnumeric(), int(x) if x.isnumeric() else x
+
+def argsort(x):
+    x_sorted= sorted(x, key= sort_order)
+    arg_list= []
+    for elem in x_sorted:
+        arg_list.append(x.index(elem))
+    return arg_list
+
 def get_logger(module_name):
     logger= logging.getLogger(module_name)
     logger.propagate= False

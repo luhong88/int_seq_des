@@ -2,7 +2,7 @@ import os, io, sys, subprocess, tempfile, time, numpy as np, pandas as pd
 from Bio import SeqIO
 from multistate_methods.protein_mpnn_ga.af2rank import af2rank
 from multistate_methods.protein_mpnn_ga.protein import DesignedProtein, SingleStateProtein
-from multistate_methods.protein_mpnn_ga.utils import npz_to_dict, get_logger, sep, Device
+from multistate_methods.protein_mpnn_ga.utils import sort_order, npz_to_dict, get_logger, sep, Device
 from inspect import signature
 
 logger= get_logger(__name__)
@@ -14,7 +14,7 @@ class ObjectiveAF2Rank(object):
         model_name= 'model_1_multimer_v3' if multimer else 'model_1_ptm'
 
         self.chain_ids= chain_ids
-        self.chain_ids.sort()
+        self.chain_ids.sort(key= sort_order)
         self.score_term= score_term
         self.settings= {
             'rm_seq': True, #mask_sequence

@@ -1,5 +1,5 @@
 import glob, sys, subprocess, tempfile, json, numpy as np
-from multistate_methods.protein_mpnn_ga.utils import get_logger, sep, alphabet, merge_pdb_files
+from multistate_methods.protein_mpnn_ga.utils import sort_order, argsort, get_logger, sep, alphabet, merge_pdb_files
 
 logger= get_logger(__name__)
 
@@ -99,8 +99,6 @@ class Protein(object):
         '''
         self.design_seq= design_seq
         self.chains_neighbors_list= chains_neighbors_list
-
-        # check that the 
         
         updated_chains_list= []
         for chain in chains_list:
@@ -116,7 +114,7 @@ class Protein(object):
                 if chain.chain_id in neighbors_list:
                     neighbors+= neighbors_list
             neighbors= [*set(neighbors)]
-            neighbors.sort()
+            neighbors.sort(key= sort_order)
             chain.neighbors_list= neighbors
             updated_chains_list.append(chain)
             logger.debug(f'chain {chain.chain_id} updated with the following neighbors_list: {chain.neighbors_list}')
@@ -127,7 +125,7 @@ class Protein(object):
         chain_id_list= [chain.chain_id for chain in updated_chains_list]
         if len(chain_id_list) != len([*set(chain_id_list)]):
             raise ValueError(f'Duplicate chain definitions detected! (parsed chain_id_list: {chain_id_list})')
-        chain_order= np.argsort(chain_id_list)
+        chain_order= argsort(chain_id_list)
         self.chains_list= [updated_chains_list[ind] for ind in chain_order]
         self.chains_dict= {chain.chain_id: chain for chain in self.chains_list}
 
@@ -427,7 +425,7 @@ class SingleStateProtein(Protein):
         '''
         The chains in the chains_sublist and pdb file should match
         '''
-        chains_sublist.sort()
+        chains_sublist.sort(key= sort_order)
         self.chains_sublist= chains_sublist
 
         tied_res_sublist= []
