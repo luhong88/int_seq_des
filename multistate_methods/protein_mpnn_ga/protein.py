@@ -48,8 +48,9 @@ class DesignSequence(object):
 
         self.n_des_res= len(self.tied_residues)
 
-        self.chains_to_design= np.array([[residue.chain_id for residue in tied_residue] for tied_residue in self.tied_residues])
-        self.chains_to_design= np.unique(self.chains_to_design.flatten()) # will return in alphabetical order; upper case before lower case
+        chains_to_design= np.array([[residue.chain_id for residue in tied_residue] for tied_residue in self.tied_residues])
+        chains_to_design= np.unique(chains_to_design.flatten())
+        self.chains_to_design= sorted(list(chains_to_design), key= sort_order)
 
         self.chain_des_pos_dict= {chain: [] for chain in self.chains_to_design}
         for tied_residue in self.tied_residues:
@@ -99,7 +100,7 @@ class Protein(object):
         '''
         self.design_seq= design_seq
         self.chains_neighbors_list= chains_neighbors_list
-        
+
         updated_chains_list= []
         for chain in chains_list:
             # check if the chain is designable
@@ -118,6 +119,14 @@ class Protein(object):
             chain.neighbors_list= neighbors
             updated_chains_list.append(chain)
             logger.debug(f'chain {chain.chain_id} updated with the following neighbors_list: {chain.neighbors_list}')
+        
+        # check that the designable positions for each chain are present in the chain
+        for chain in updated_chains_list:
+            if chain.is_designable:
+                chain_des_pos= self.design_seq.chain_des_pos_dict[chain.chain_id]
+                for des_pos in chain_des_pos:
+                    if not chain.init_resid <= des_pos <= chain.fin_resid:
+                        raise IndexError(f'Design position {des_pos} in chain {chain.chain_id} ({chain.init_resid}-{chain.fin_resid}) is out of bounds.')
 
         # chains_list should only include designable chains
         # ensure that the chains are listed in alphabetical order
