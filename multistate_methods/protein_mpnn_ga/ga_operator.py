@@ -3,7 +3,7 @@ from copy import deepcopy
 from scipy.spatial import distance_matrix
 
 from multistate_methods.protein_mpnn_ga.wrapper import ObjectiveESM
-from multistate_methods.protein_mpnn_ga.utils import sort_order, argsort, get_logger, sep, class_seeds, get_array_chunk, evaluate_candidates, cluster_act_single_candidate
+from multistate_methods.protein_mpnn_ga.utils import sort_order, get_logger, sep, class_seeds, get_array_chunk, evaluate_candidates, cluster_act_single_candidate
 from pymoo.core.mutation import Mutation
 from pymoo.core.sampling import Sampling
 from pymoo.core.problem import Problem
@@ -275,7 +275,7 @@ class MutationMethod(object):
                 esm_scores_des_pos.append(esm_scores[des_pos])
         # sort in ascending order for the ESM log likelihood scores (i.e., worst to best)
         # np.argsort() will will put the np.nan positions at the end of the list, which is then removed through slicing
-        esm_scores_des_pos_argsort= argsort(esm_scores_des_pos)
+        esm_scores_des_pos_argsort= np.argsort(esm_scores_des_pos)
         n_nan= sum(np.isnan(esm_scores_des_pos))
         if n_nan > 0:
             esm_scores_des_pos_argsort= esm_scores_des_pos_argsort[:-n_nan]
@@ -340,7 +340,8 @@ class ProteinMutation(Mutation):
 
         # reset RNG
         if self.cluster_parallelization:
-            size= self.pop_size
+            # it seems that if the population size is an odd number, sometimes len(candidates) > pop_size
+            size= max(self.pop_size, len(candidates))
         else:
             if self.comm is None:
                 size= 1

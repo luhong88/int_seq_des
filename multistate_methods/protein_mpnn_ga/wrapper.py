@@ -115,17 +115,20 @@ class ObjectiveESM(object):
             t0= time.time()
             proc= subprocess.run(exec_str, stdout= subprocess.PIPE, stderr= subprocess.PIPE, check= False)
             t1= time.time()
-            logger.info(f'ESM (device: {self.device}, name= {self.name}, position_wise) run time: {t1 - t0} s.\n')                    
+            logger.info(f'ESM (device: {self.device}, name= {self.name}, position_wise) run time: {t1 - t0} s.\n')  
+
             try:
                 output_df= pd.read_csv(out_f, sep= ',')
                 if position_wise:
                     output_arr= output_df[self.model_name].str.split(pat= ';', expand= True).to_numpy(dtype= float)
                 else:
                     output_arr= output_df[self.model_name].to_numpy(dtype= float)
+                    
             except:
                 # The script uses stderr to print progression info, so only check for error when attempting to read the output file
                 logger.exception(f'Command {proc.args} returned non-zero exist status {proc.returncode} with the input\n{sep}\n{input_fa}\n{sep}\nand the stdout\n{sep}\n{proc.stdout.decode()}\n{sep}\nand the stderr\n{sep}\n{proc.stderr.decode()}\n{sep}\n')
                 sys.exit(1)
+
             esm_dir.cleanup()
             
             '''
@@ -243,9 +246,11 @@ class ProteinMPNNWrapper(object):
                 exec_str += ['--seed', str(seed)]
             if method == 'ProteinMPNN-PD':
                 exec_str+= ['--pareto']
+
             t0= time.time()
             proc= subprocess.run(exec_str, stdout= subprocess.PIPE, stderr= subprocess.PIPE, check= False)
             t1= time.time()
+
             logger.info(f'ProteinMPNN (device: {self.device}) run time: {t1 - t0} s.')
             if proc.stderr:
                 raise RuntimeError(f'Command {proc.args} returned non-zero exist status {proc.returncode} with the stderr\n{proc.stderr.decode()}')
@@ -327,6 +332,7 @@ class ProteinMPNNWrapper(object):
             t0= time.time()
             proc= subprocess.run(exec_str, stdout= subprocess.PIPE, stderr= subprocess.PIPE, check= False)
             t1= time.time()
+            
             logger.info(f'ProteinMPNN (device: {self.device}) run time: {t1 - t0} s.')
             if proc.stderr:
                 raise RuntimeError(f'Command {proc.args} returned non-zero exist status {proc.returncode} with the stderr\n{proc.stderr.decode()}')
