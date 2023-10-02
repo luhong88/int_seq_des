@@ -236,7 +236,7 @@ class Protein(object):
         if pdbs_list is None:
             pdbs_list= glob.glob(f'{self.pdb_files_dir}/*.pdb')
         merge_pdb_files(pdbs_list, f'{combined_pdb_file_dir.name}/combined_pdb.pdb')
-
+        
         out= tempfile.NamedTemporaryFile()
         exec_str= [
             sys.executable, f'{self.helper_scripts_dir}/parse_multiple_chains.py',

@@ -107,7 +107,8 @@ def run_nsga2(
         mutation_operator, crossover_operator, metrics_list,
         pkg_dir, root_seed, out_file_name, saving_method,
         observer_metrics_list= None,
-        comm= None, cluster_parallelization= False, cluster_time_limit_str= None, cluster_mem_free_str= None,
+        comm= None, cluster_parallelization= False, cluster_parallelize_metrics= False,
+        cluster_time_limit_str= None, cluster_mem_free_str= None,
         restart= False, init_pop_file= None, init_mutation_rate= 0.1
     ):
     
@@ -120,6 +121,7 @@ def run_nsga2(
         pkg_dir,
         comm, 
         cluster_parallelization, 
+        cluster_parallelize_metrics,
         cluster_time_limit_str, 
         cluster_mem_free_str)
 
@@ -175,7 +177,8 @@ def run_nsga3(
         mutation_operator, crossover_operator, metrics_list,
         pkg_dir, root_seed, out_file_name, saving_method,
         observer_metrics_list= None,
-        comm= None, cluster_parallelization= False, cluster_time_limit_str= None, cluster_mem_free_str= None,
+        comm= None, cluster_parallelization= False, cluster_parallelize_metrics= False,
+        cluster_time_limit_str= None, cluster_mem_free_str= None,
         restart= False, init_pop_file= None, init_mutation_rate= 0.1
     ):
     
@@ -188,6 +191,7 @@ def run_nsga3(
         pkg_dir,
         comm, 
         cluster_parallelization, 
+        cluster_parallelize_metrics,
         cluster_time_limit_str, 
         cluster_mem_free_str)
 

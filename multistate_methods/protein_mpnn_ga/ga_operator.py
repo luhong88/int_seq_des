@@ -480,6 +480,7 @@ class MultistateSeqDesignProblem(Problem):
             pkg_dir,
             comm= None, 
             cluster_parallelization= False, 
+            cluster_parallelize_metrics= False,
             cluster_time_limit_str= None, 
             cluster_mem_free_str= None, 
             **kwargs
@@ -490,6 +491,7 @@ class MultistateSeqDesignProblem(Problem):
         self.pkg_dir= pkg_dir
         self.comm= comm
         self.cluster_parallelization= cluster_parallelization
+        self.cluster_parallelize_metrics= cluster_parallelize_metrics
         self.cluster_time_limit_str= cluster_time_limit_str
         self.cluster_mem_free_str= cluster_mem_free_str
         super().__init__(n_var= protein.design_seq.n_des_res, n_obj= len(self.metrics_list), n_ieq_constr= 0, xl= None, xu= None, **kwargs)
@@ -502,7 +504,7 @@ class MultistateSeqDesignProblem(Problem):
             self.pkg_dir,
             comm= self.comm,
             cluster_parallelization= self.cluster_parallelization,
-            cluster_parallelize_metrics= True,
+            cluster_parallelize_metrics= self.cluster_parallelize_metrics,
             cluster_time_limit_str= self.cluster_time_limit_str, 
             cluster_mem_free_str= self.cluster_mem_free_str
         )

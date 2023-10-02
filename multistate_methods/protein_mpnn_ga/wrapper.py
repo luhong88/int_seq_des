@@ -257,7 +257,7 @@ class ProteinMPNNWrapper(object):
             logger.debug(f'ProteinMPNN (device: {self.device}) was called with the command:\n{sep}\n{exec_str}\n{sep}\nstdout:\n{sep}\n{proc.stdout.decode()}\n{sep}\nstderr:\n{sep}\n{proc.stderr.decode()}\n{sep}\n')
 
             records = SeqIO.parse(io.StringIO(proc.stdout.decode()), "fasta")
-
+            
             out_dir.cleanup()
 
             return list(records), designed_protein.design_seq.chains_to_design
@@ -288,7 +288,7 @@ class ProteinMPNNWrapper(object):
             candidates.append(candidate)
         logger.debug(f'ProteinMPNN design_seqs_to_candidates() input:\n{sep}\n{seq_list[1:]}\n{sep}\noutput:\n{sep}\n{candidates}\n{sep}\n')
         candidates= np.asarray(candidates)
-
+        
         return candidates
     
     def design_and_decode_to_candidates(self, method, base_candidate, proposed_des_pos_list, num_seqs, batch_size, seed= None):
