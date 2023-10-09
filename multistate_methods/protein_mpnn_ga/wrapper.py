@@ -348,8 +348,71 @@ class ProteinMPNNWrapper(object):
             outputs= [npz_to_dict(np.load(f'{out_dir.name}/conditional_probs_only/{pdb_file_name}.npz'))]
         elif scoring_mode == 'unconditional_probs_only':
             outputs= [npz_to_dict(np.load(f'{out_dir.name}/{scoring_mode}/{pdb_file_name}.npz'))]
-        assert False
+        
         out_dir.cleanup()
 
         return outputs
+        
+
+class ObjectiveProteinMPNNNegLogProb(object):
+    def __init__(self, chain_ids, pdb_file_name, score_type, model_weights_loc, protein_mpnn_run_loc= None, num_seqs= 10, device= 'cpu', sign_flip= False):
+        self.model_weights_loc= model_weights_loc
+        if protein_mpnn_run_loc is None:
+            self.protein_mpnn_run_loc= os.path.dirname(os.path.realpath(__file__)) + '/../protein_mpnn_pd/protein_mpnn_run.py'
+        else:
+            self.protein_mpnn_run_loc= protein_mpnn_run_loc
+
+        self.pdb_file_name= pdb_file_name
+        self.chain_ids= chain_ids
+        self.chain_ids.sort(key= sort_order)
+
+        self.num_seqs= num_seqs
+
+        assert score_type in ['designable_positions', 'all_positions'], f'The score type {score_type} is not recognized!'
+        self.score_type= score_type
+
+        self.sign_flip= sign_flip # sign_flip should be false by default, because negative log probability needs to be minimized
+
+        model_name= f'protein_mpnn_{"neg_" if not sign_flip else ""}log_prob_{score_type}'
+        self.name= model_name + f'_chain_{"".join(self.chain_ids)}'
+        
+        self.device= device
+    
+    def __str__(self):
+        return self.name
+    
+    def apply(self, candidates, protein):
+        logger.debug(f'ProteinMPNNNegLogProb (device: {self.device}, name= {self.name}) called with the candidates:\n{sep}\n{candidates}\n{sep}\n')
+
+        protein_mpnn_wrapper= ProteinMPNNWrapper(
+            protein= protein,
+            temp= 0.1,
+            model_weights_loc= self.model_weights_loc,
+            detect_degeneracy= False,
+            uniform_sampling= False,
+            device= self.device,
+            protein_mpnn_run_loc= self.protein_mpnn_run_loc
+        )
+        
+        protein_mpnn_outputs= protein_mpnn_wrapper.score(
+            scoring_mode= 'score_only',
+            chains_sublist= self.chain_ids, 
+            pdb_file_name= self.pdb_file_name, 
+            candidates= candidates, 
+            num_seqs= self.num_seqs, 
+            batch_size= 1, 
+            seed= 1)
+        
+        if self.score_type == 'designable_positions':
+            score_term= 'score'
+        elif self.score_type == 'all_positions':
+            score_term= 'global_score'
+        
+        mean_scores= np.array([np.mean(output[score_term]) for output in protein_mpnn_outputs])
+        neg_mean_scores= -mean_scores if self.sign_flip else mean_scores
+
+        logger.debug(f'ProteinMPNNNegLogProb (device: {self.device}, name= {self.name}) apply() returned the following raw outputs:\n{sep}\n{protein_mpnn_outputs}\n{sep}\nand the following processed scores:\n{sep}\n{neg_mean_scores}\n{sep}\n')
+
+        return neg_mean_scores
+        
         

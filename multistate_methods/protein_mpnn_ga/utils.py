@@ -13,7 +13,7 @@ alphabet = 'ACDEFGHIKLMNPQRSTVWY'
 class_seeds= {
     'run_single_pass': 605177,
     'ProteinMutation': 350671,
-    'ProteinSampling': 501129,
+    'ProteinSampling': 501129
 }
 
 # This function can be passed to sort() or the following custom argsort() to sort chain id into capital letter, lowercase letter, and then numerics
