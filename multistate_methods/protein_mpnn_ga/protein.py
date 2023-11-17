@@ -41,21 +41,33 @@ class TiedResidue(object):
 
 class DesignSequence(object):
     '''
-    We do not allow for the presence of un-tied (i.e., single-state design) positions
+    We will relax the assumptions and allow for a mixture of both tied and un-tied positions
     '''
-    def __init__(self, *tied_residues):
-        self.tied_residues= tied_residues
+    def __init__(self, *residues):
+        self.tied_residues= residues
 
         self.n_des_res= len(self.tied_residues)
 
-        chains_to_design= np.array([[residue.chain_id for residue in tied_residue] for tied_residue in self.tied_residues])
+        chains_to_design= []
+        for tied_residue in self.tied_residues:
+            if isinstance(tied_residue, Residue):
+                chains_to_design.append(tied_residue.chain_id)
+            elif isinstance(residue, TiedResidue):
+                chains_to_design+= [residue.chain_id for residue in tied_residue]
+            else:
+                raise TypeError('Invalid input residue object!')
+        chains_to_design= np.array(chains_to_design)
+        
         chains_to_design= np.unique(chains_to_design.flatten())
         self.chains_to_design= sorted(list(chains_to_design), key= sort_order)
 
         self.chain_des_pos_dict= {chain: [] for chain in self.chains_to_design}
         for tied_residue in self.tied_residues:
-            for residue in tied_residue:
-                self.chain_des_pos_dict[residue.chain_id].append(residue.resid)
+            if isinstance(tied_residue, Residue):
+                self.chain_des_pos_dict[tied_residue.chain_id].append(tied_residue.resid)
+            elif isinstance(tied_residue, TiedResidue):
+                for residue in tied_residue:
+                    self.chain_des_pos_dict[residue.chain_id].append(residue.resid)
         
         logger.debug(f'DesignSequence init definition:\n{sep}\ntied_residues: {str(self)}\nchains_to_design: {self.chains_to_design}\nchain_des_pos_dict: {self.chain_des_pos_dict}\n{sep}\n')
 
