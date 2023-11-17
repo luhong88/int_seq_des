@@ -4,7 +4,7 @@ from multistate_methods.protein_mpnn_ga.utils import sort_order, argsort, get_lo
 logger= get_logger(__name__)
 
 class Residue(object):
-    def __init__(self, chain_id, resid, weight):
+    def __init__(self, chain_id, resid, weight, omit_AA= None):
         if not isinstance(chain_id, str):
             raise TypeError(f'chain_id {chain_id} is not a str.')
         if not (isinstance(resid, int) and resid > 0):
@@ -15,6 +15,14 @@ class Residue(object):
         self.chain_id= chain_id
         self.resid= resid
         self.weight= weight
+
+        # omit_AA is used only when Residue is not used as part of a TiedResidue
+        self.allowed_AA= alphabet
+        if omit_AA is not None:
+            if not isinstance(omit_AA, str):
+                raise TypeError(f'omit_AA {omit_AA} is not a str.')
+            for AA in list(omit_AA):
+                self.allowed_AA= self.allowed_AA.replace(AA, '')
 
 class TiedResidue(object):
     def __init__(self, *residues, omit_AA= None):
@@ -400,8 +408,9 @@ class Protein(object):
         else:
             tied_lists= []
             for tied_residue in self.design_seq:
-                tied_list= tied_list= '{' + ', '.join([f'''"{residue.chain_id}": [[{residue.resid - (self.chains_dict[residue.chain_id].init_resid - 1)}], [{residue.weight}]]''' for residue in tied_residue]) + '}'
-                tied_lists.append(tied_list)
+                if isinstance(tied_residue, TiedResidue):
+                    tied_list= tied_list= '{' + ', '.join([f'''"{residue.chain_id}": [[{residue.resid - (self.chains_dict[residue.chain_id].init_resid - 1)}], [{residue.weight}]]''' for residue in tied_residue]) + '}'
+                    tied_lists.append(tied_list)
 
             combined_tied_list= '{"' + 'combined_pdb' + '": [' + ', '.join(tied_lists) + ']}'
             logger.debug(f'parse_tied_positions() returned the following results:\n{sep}\n{combined_tied_list}\n{sep}\n')

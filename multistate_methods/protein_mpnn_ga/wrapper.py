@@ -1,7 +1,7 @@
 import os, io, sys, subprocess, tempfile, time, numpy as np, pandas as pd
 from Bio import SeqIO
 from multistate_methods.protein_mpnn_ga.af2rank import af2rank
-from multistate_methods.protein_mpnn_ga.protein import DesignedProtein, SingleStateProtein
+from multistate_methods.protein_mpnn_ga.protein import DesignedProtein, SingleStateProtein, Residue, TiedResidue
 from multistate_methods.protein_mpnn_ga.utils import sort_order, npz_to_dict, get_logger, sep, Device
 from inspect import signature
 
@@ -265,8 +265,12 @@ class ProteinMPNNWrapper(object):
     def design_seqs_to_candidates(self, fa_records, candidate_chains_to_design, base_candidate):
         AA_locator= []
         for tied_res in self.protein.design_seq.tied_residues:
-            # use the first residue in a tied_residue as the representative
-            rep_res= tied_res.residues[0]
+            if isinstance(tied_res, TiedResidue):
+                # use the first residue in a tied_residue as the representative
+                rep_res= tied_res.residues[0]
+            elif isinstance(tied_res, Residue):
+                rep_res= tied_res
+                
             chain_id= rep_res.chain_id
             resid= rep_res.resid
             res_ind= resid - self.protein.chains_dict[chain_id].init_resid # the offset here is due to ProteinMPNN not having the missing terminal res

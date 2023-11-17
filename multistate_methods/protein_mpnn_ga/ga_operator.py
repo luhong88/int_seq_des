@@ -186,7 +186,7 @@ class MutationMethod(object):
     def _spatially_coupled_sampling(self, protein, chain_id, allowed_pos_list, hotspot_allowed_des_pos_ranked_list, mutation_rate, sigma):
         '''
         hotspot_allowed_des_pos_ranked_list is a subset of allowed_pos_list, likely with a different ordering
-        this function is complicated because each allowed position corresponds to multiple physical residues, but we want to know the shortest possible distances between each pairs of allowed positions
+        this function is complicated because each allowed position may correspond to multiple physical residues, but we want to know the shortest possible distances between each pairs of allowed positions
         '''
         CA_coords_df= {}
         neighbor_chain_ids= protein.chains_dict[chain_id].neighbors_list
