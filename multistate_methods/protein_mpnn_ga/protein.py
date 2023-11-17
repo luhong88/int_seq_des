@@ -46,6 +46,11 @@ class DesignSequence(object):
     def __init__(self, *residues):
         self.tied_residues= residues
 
+        self.has_no_tied_residues= True
+        for tied_residue in self.tied_residues:
+            if isinstance(tied_residue, TiedResidue):
+                self.has_no_tied_residues= False
+
         self.n_des_res= len(self.tied_residues)
 
         chains_to_design= []
@@ -164,8 +169,12 @@ class Protein(object):
     def get_candidate(self):
         candidate= []
         for tied_res in self.design_seq.tied_residues:
-            # use the first residue in a tied_residue as the representative
-            rep_res= tied_res.residues[0]
+            if isinstance(tied_res, TiedResidue):
+                # use the first residue in a tied_residue as the representative
+                rep_res= tied_res.residues[0]
+            elif isinstance(tied_res, Residue):
+                rep_res= tied_res
+
             chain_id= rep_res.chain_id
             resid= rep_res.resid
             candidate.append(self.chains_dict[chain_id].full_seq[resid - 1]) # for full seq with no missing residue, only need to convert from 1-index to 0-index
@@ -186,10 +195,14 @@ class Protein(object):
 
         if candidate is not None:
             for tied_res, candidate_AA in zip(self.design_seq.tied_residues, candidate):
-                for res in tied_res.residues:
-                    if res.chain_id == chain_id:
-                        #full_seq[res.resid - init_resid]= candidate_AA
-                        full_seq[res.resid - 1]= candidate_AA
+                if isinstance(tied_res, TiedResidue):
+                    for res in tied_res.residues:
+                        if res.chain_id == chain_id:
+                            #full_seq[res.resid - init_resid]= candidate_AA
+                            full_seq[res.resid - 1]= candidate_AA
+                elif isinstance(tied_res, Residue):
+                    if tied_res.chain_id == chain_id:
+                        full_seq[tied_res.resid - 1]= candidate_AA
         
         resid_arr= np.arange(len(full_seq)) + 1
         terminal_missing_res_mask= (resid_arr < init_resid) | (resid_arr > fin_resid)
@@ -216,24 +229,43 @@ class Protein(object):
         chain_des_pos_list= []
         for des_pos in candidate_des_pos_list:
             tied_res= self.design_seq.tied_residues[des_pos]
-            if chain_id in tied_res.chain_ids_unique:
-                for res in tied_res:
-                    if res.chain_id == chain_id:
-                        resid= res.resid
-                        if drop_internal_missing_res:
-                            missing_list= self.chains_dict[chain_id].internal_missing_res_list
-                            if resid in missing_list:
-                                raise ValueError(f'Designable residue {resid} in chain {chain_id} is on the internal_missing_res_list of that chain, which should not be possible.')
-                            offset= sum(missing_resid < resid for missing_resid in missing_list)
-                            resid-= offset
-                        if drop_terminal_missing_res:
-                            init_resid= self.chains_dict[chain_id].init_resid
-                            resid-= init_resid # this automatically make resid 0-indexed
-                        else:
-                            resid-= 1 # make resid 0-indexed
-                        chain_des_pos_list.append(resid)
-            else:
-                chain_des_pos_list.append(None)
+            if isinstance(tied_res, TiedResidue):
+                if chain_id in tied_res.chain_ids_unique:
+                    for res in tied_res:
+                        if res.chain_id == chain_id:
+                            resid= res.resid
+                            if drop_internal_missing_res:
+                                missing_list= self.chains_dict[chain_id].internal_missing_res_list
+                                if resid in missing_list:
+                                    raise ValueError(f'Designable residue {resid} in chain {chain_id} is on the internal_missing_res_list of that chain, which should not be possible.')
+                                offset= sum(missing_resid < resid for missing_resid in missing_list)
+                                resid-= offset
+                            if drop_terminal_missing_res:
+                                init_resid= self.chains_dict[chain_id].init_resid
+                                resid-= init_resid # this automatically make resid 0-indexed
+                            else:
+                                resid-= 1 # make resid 0-indexed
+                            chain_des_pos_list.append(resid)
+                else:
+                    chain_des_pos_list.append(None)
+
+            elif isinstance(tied_res, Residue):
+                if chain_id == tied_res.chain_id:
+                    resid= tied_res.resid
+                    if drop_internal_missing_res:
+                        missing_list= self.chains_dict[chain_id].internal_missing_res_list
+                        if resid in missing_list:
+                            raise ValueError(f'Designable residue {resid} in chain {chain_id} is on the internal_missing_res_list of that chain, which should not be possible.')
+                        offset= sum(missing_resid < resid for missing_resid in missing_list)
+                        resid-= offset
+                    if drop_terminal_missing_res:
+                        init_resid= self.chains_dict[chain_id].init_resid
+                        resid-= init_resid # this automatically make resid 0-indexed
+                    else:
+                        resid-= 1 # make resid 0-indexed
+                    chain_des_pos_list.append(resid)
+                else:
+                    chain_des_pos_list.append(None)
         
         if all(des_pos is None for des_pos in chain_des_pos_list):
             raise RuntimeError(f'chain_des_pos_list returns None only for chain {chain_id}. Are you sure the chain has any designable positions?')
@@ -363,16 +395,19 @@ class Protein(object):
             return {'json': parsed_fixed_positions, 'exec_str': 'fixed_positions_jsonl'}
     
     def parse_tied_positions(self):
-        tied_lists= []
-        for tied_residue in self.design_seq:
-            tied_list= tied_list= '{' + ', '.join([f'''"{residue.chain_id}": [[{residue.resid - (self.chains_dict[residue.chain_id].init_resid - 1)}], [{residue.weight}]]''' for residue in tied_residue]) + '}'
-            tied_lists.append(tied_list)
+        if self.design_seq.has_no_tied_residues:
+            return None
+        else:
+            tied_lists= []
+            for tied_residue in self.design_seq:
+                tied_list= tied_list= '{' + ', '.join([f'''"{residue.chain_id}": [[{residue.resid - (self.chains_dict[residue.chain_id].init_resid - 1)}], [{residue.weight}]]''' for residue in tied_residue]) + '}'
+                tied_lists.append(tied_list)
 
-        combined_tied_list= '{"' + 'combined_pdb' + '": [' + ', '.join(tied_lists) + ']}'
-        logger.debug(f'parse_tied_positions() returned the following results:\n{sep}\n{combined_tied_list}\n{sep}\n')
-        parsed_tied_positions= json.loads(combined_tied_list)
+            combined_tied_list= '{"' + 'combined_pdb' + '": [' + ', '.join(tied_lists) + ']}'
+            logger.debug(f'parse_tied_positions() returned the following results:\n{sep}\n{combined_tied_list}\n{sep}\n')
+            parsed_tied_positions= json.loads(combined_tied_list)
 
-        return {'json': parsed_tied_positions, 'exec_str': 'tied_positions_jsonl'}
+            return {'json': parsed_tied_positions, 'exec_str': 'tied_positions_jsonl'}
     
     def parse_omit_AA(self):
         raise NotImplementedError()
