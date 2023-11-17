@@ -486,9 +486,13 @@ class SingleStateProtein(Protein):
 
         tied_res_sublist= []
         for tied_res in multistate_protein.design_seq:
-            res_sublist= [res for res in tied_res if res.chain_id in chains_sublist]
-            new_tied_res= TiedResidue(*res_sublist)
-            tied_res_sublist.append(new_tied_res)
+            if isinstance(tied_res, TiedResidue):
+                res_sublist= [res for res in tied_res if res.chain_id in chains_sublist]
+                new_tied_res= TiedResidue(*res_sublist)
+                tied_res_sublist.append(new_tied_res)
+            elif isinstance(tied_res, Residue):
+                if tied_res.chain_id in chains_sublist:
+                    tied_res_sublist.append(tied_res)
         self.design_seq= DesignSequence(*tied_res_sublist)
 
         self.chains_neighbors_list= [lst for lst in multistate_protein.chains_neighbors_list if set(chains_sublist) & set(lst)]
