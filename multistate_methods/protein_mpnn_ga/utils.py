@@ -29,7 +29,7 @@ def argsort(x):
 def get_logger(module_name):
     logger= logging.getLogger(module_name)
     logger.propagate= False
-    logger.setLevel(logging.WARN)
+    logger.setLevel(logging.DEBUG)
     c_handler= logging.StreamHandler()
     c_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
     logger.addHandler(c_handler)
@@ -156,7 +156,7 @@ def sge_write_submit_script(sge_script_loc, job_name, time_limit_str, mem_free_s
     use the -c tag to execute a string through the python interpreter
     '''
     job_name= job_name[:100] # truncate long job names
-
+    
     submit_str=f'''
 #!/bin/bash
 #$ -cwd
@@ -165,7 +165,7 @@ def sge_write_submit_script(sge_script_loc, job_name, time_limit_str, mem_free_s
 #$ -e {job_name}.err
 #$ -l h_rt={time_limit_str}
 {"#$ -l x86-64-v=3" if "af2rank" in job_name else ""}
-#$ -l mem_free={mem_free_str}
+{"#$ -l mem_free="+str(mem_free_str) if mem_free_str is not None else ""}
 #$ -l h=!qb3-atgpu17&!qb3-atgpu17
 
 module use $HOME/software/modules
@@ -177,6 +177,7 @@ export CUDA_VISIBLE_DEVICES=""
 
 python3 -c '{python_str}'
 '''
+    assert mem_free_str is not None, submit_str
     with open(sge_script_loc, 'w') as f:
         f.write(submit_str)
 
@@ -255,7 +256,7 @@ def cluster_act_single_candidate(actions_list, candidate, protein, cluster_time_
     try:
         results= []
         for action in actions_list:
-            job_dir= tempfile.TemporaryDirectory(dir= '/wynton/home/kortemme/lhong/multistate_methods/examples/')
+            job_dir= tempfile.TemporaryDirectory(dir= '/wynton/home/kortemme/lhong/multistate_methods/examples_v2/')
             out_file= f'score.p'
             sge_script_file= 'submit.sh'
 
@@ -383,7 +384,7 @@ def evaluate_candidates(
         return scores
 
 class SavePop(Callback):
-    def __init__(self, protein, metrics_list, observer_metrics_list, pkg_dir, comm= None, cluster_parallelization= False, cluster_time_limit_str= None, cluster_mem_free_str= None):
+    def __init__(self, protein, metrics_list, observer_metrics_list, pkg_dir, comm= None, cluster_parallelization= False, cluster_parallelize_metrics= False, cluster_time_limit_str= None, cluster_mem_free_str= None):
         super().__init__()
         self.data['pop'] = []
         self.protein= protein
@@ -392,6 +393,7 @@ class SavePop(Callback):
         self.pkg_dir= pkg_dir
         self.comm= comm
         self.cluster_parallelization= cluster_parallelization
+        self.cluster_parallelize_metrics= cluster_parallelize_metrics
         self.cluster_time_limit_str= cluster_time_limit_str
         self.cluster_mem_free_str= cluster_mem_free_str
 
@@ -404,14 +406,15 @@ class SavePop(Callback):
 
         if self.observer_metrics_list is not None:
             observer_metrics_scores= evaluate_candidates(
-                self.observer_metrics_list,
-                candidates,
-                self.protein,
-                self.pkg_dir,
-                self.comm,
-                self.cluster_parallelization,
-                self.cluster_time_limit_str,
-                self.cluster_mem_free_str)
+                metrics_list= self.observer_metrics_list,
+                candidates= candidates,
+                protein= self.protein,
+                pkg_dir= self.pkg_dir,
+                comm= self.comm,
+                cluster_parallelization= self.cluster_parallelization,
+                cluster_parallelize_metrics= self.cluster_parallelize_metrics
+                cluster_time_limit_str= self.cluster_time_limit_str,
+                cluster_mem_free_str= self.cluster_mem_free_str)
             observer_metrics_scores_df= pd.DataFrame(observer_metrics_scores, columns= [str(metric) for metric in self.observer_metrics_list])
             pop_df= pd.concat([pop_df, observer_metrics_scores_df], axis= 1)
 
@@ -420,7 +423,7 @@ class SavePop(Callback):
         logger.debug(f'SavePop returned the following population:\n{sep}\n{pop_df}\n{sep}\n')
 
 class DumpPop(Callback):
-    def __init__(self, protein, metrics_list, observer_metrics_list, out_file_name, pkg_dir, comm= None, cluster_parallelization= False, cluster_time_limit_str= None, cluster_mem_free_str= None):
+    def __init__(self, protein, metrics_list, observer_metrics_list, out_file_name, pkg_dir, comm= None, cluster_parallelization= False, cluster_parallelize_metrics= False, cluster_time_limit_str= None, cluster_mem_free_str= None):
         super().__init__()
         self.protein= protein
         self.metric_name_list= [str(metric) for metric in metrics_list]
@@ -430,6 +433,7 @@ class DumpPop(Callback):
         self.pkg_dir= pkg_dir
         self.comm= comm
         self.cluster_parallelization= cluster_parallelization
+        self.cluster_parallelize_metrics= cluster_parallelize_metrics
         self.cluster_time_limit_str= cluster_time_limit_str
         self.cluster_mem_free_str= cluster_mem_free_str
 
@@ -442,14 +446,15 @@ class DumpPop(Callback):
 
         if self.observer_metrics_list is not None:    
             observer_metrics_scores= evaluate_candidates(
-                self.observer_metrics_list,
-                candidates,
-                self.protein,
-                self.pkg_dir,
-                self.comm,
-                self.cluster_parallelization,
-                self.cluster_time_limit_str,
-                self.cluster_mem_free_str)
+                metrics_list= self.observer_metrics_list,
+                candidates= candidates,
+                protein= self.protein,
+                pkg_dir= self.pkg_dir,
+                comm= self.comm,
+                cluster_parallelization= self.cluster_parallelization,
+                cluster_parallelize_metrics= self.cluster_parallelize_metrics
+                cluster_time_limit_str= self.cluster_time_limit_str,
+                cluster_mem_free_str= self.cluster_mem_free_str)
             observer_metrics_scores_df= pd.DataFrame(observer_metrics_scores, columns= [str(metric) for metric in self.observer_metrics_list])
             pop_df= pd.concat([pop_df, observer_metrics_scores_df], axis= 1)
 

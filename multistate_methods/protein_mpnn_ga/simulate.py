@@ -146,7 +146,7 @@ def run_nsga2(
             ('n_gen', n_generation),
             seed= root_seed if isinstance(root_seed, int) else sum(root_seed),
             verbose= False,
-            callback= DumpPop(protein, metrics_list, observer_metrics_list, out_file_name, pkg_dir, comm, cluster_parallelization, cluster_time_limit_str, cluster_mem_free_str),
+            callback= DumpPop(protein, metrics_list, observer_metrics_list, out_file_name, pkg_dir, comm, cluster_parallelization, cluster_parallelize_metrics, cluster_time_limit_str, cluster_mem_free_str),
             copy_algorithm= False
         )
         t1= time.time()
@@ -160,7 +160,7 @@ def run_nsga2(
             ('n_gen', n_generation),
             seed= root_seed if isinstance(root_seed, int) else sum(root_seed),
             verbose= False,
-            callback= SavePop(protein, metrics_list, observer_metrics_list, pkg_dir, comm, cluster_parallelization, cluster_time_limit_str, cluster_mem_free_str),
+            callback= SavePop(protein, metrics_list, observer_metrics_list, pkg_dir, comm, cluster_parallelization, cluster_parallelize_metrics, cluster_time_limit_str, cluster_mem_free_str),
             copy_algorithm= False
         )
         t1= time.time()
