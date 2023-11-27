@@ -8,13 +8,14 @@ from inspect import signature
 logger= get_logger(__name__)
 
 class ObjectiveAF2Rank(object):
-    def __init__(self, chain_ids, template_file_loc, tmscore_exec, params_dir, score_term= 'composite', device= 'cpu', sign_flip= True):
+    def __init__(self, chain_ids, template_file_loc, tmscore_exec, params_dir, score_term= 'composite', device= 'cpu', sign_flip= True, use_surrogate_tied_residues= False):
         multimer= True if len(chain_ids) > 1 else False
         # note that the multimer params version might change in the future, depending on alphafold-multimer and colabfold developments.
         model_name= 'model_1_multimer_v3' if multimer else 'model_1_ptm'
 
         self.chain_ids= chain_ids
         self.chain_ids.sort(key= sort_order)
+        self.use_surrogate_tied_residues= use_surrogate_tied_residues
         self.score_term= score_term
         self.settings= {
             'rm_seq': True, #mask_sequence
@@ -42,7 +43,7 @@ class ObjectiveAF2Rank(object):
             full_seq= ''
             for chain_id in self.chain_ids:
                 # by default, all missing residues are ignored, and multiple chains are concatenated as if there were only one continuous chain with no breaks
-                full_seq+= protein.get_chain_full_seq(chain_id, candidate, drop_terminal_missing_res= True, drop_internal_missing_res= True)
+                full_seq+= protein.get_chain_full_seq(chain_id, candidate, drop_terminal_missing_res= True, drop_internal_missing_res= True, use_surrogate_tied_residues= self.use_surrogate_tied_residues)
             full_seqs.append(full_seq)
         logger.debug(f'AF2Rank (device: {self.device}, name: {self.name}) called with the sequences:\n{sep}\n{full_seqs}\n{sep}\n')
         output= []

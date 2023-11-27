@@ -65,7 +65,7 @@ class DesignSequence(object):
         for tied_residue in self.tied_residues:
             if isinstance(tied_residue, Residue):
                 chains_to_design.append(tied_residue.chain_id)
-            elif isinstance(residue, TiedResidue):
+            elif isinstance(tied_residue, TiedResidue):
                 chains_to_design+= [residue.chain_id for residue in tied_residue]
             else:
                 raise TypeError('Invalid input residue object!')
@@ -117,7 +117,7 @@ class Chain(object):
         logger.debug(f'Chain init definition:\n{sep}\nchain_id: {chain_id}\ninit_resid: {init_resid}, fin_resid: {fin_resid}\ninternal_missing_res_list: {internal_missing_res_list}\nfull_seq: {full_seq}\n{sep}\n')
 
 class Protein(object):
-    def __init__(self, design_seq, chains_list, chains_neighbors_list, pdb_files_dir, protein_mpnn_helper_scripts_dir):
+    def __init__(self, design_seq, chains_list, chains_neighbors_list, pdb_files_dir, protein_mpnn_helper_scripts_dir, surrogate_tied_residues_list= None):
         '''
         Input structures must have the correct chain id
         It is okay to have gaps in the chains; resid 1-indexed
@@ -125,6 +125,7 @@ class Protein(object):
         '''
         self.design_seq= design_seq
         self.chains_neighbors_list= chains_neighbors_list
+        self.surrogate_tied_residues_list= surrogate_tied_residues_list
 
         updated_chains_list= []
         for chain in chains_list:
@@ -195,14 +196,20 @@ class Protein(object):
             candidate, 
             drop_terminal_missing_res, 
             drop_internal_missing_res, 
-            replace_missing_residues_with= None
+            replace_missing_residues_with= None,
+            use_surrogate_tied_residues= False # useful for single state designs
         ):
         
         full_seq= np.array(list(self.chains_dict[chain_id].full_seq), dtype= object)
         init_resid, fin_resid= self.chains_dict[chain_id].resid_range
 
         if candidate is not None:
-            for tied_res, candidate_AA in zip(self.design_seq.tied_residues, candidate):
+            if use_surrogate_tied_residues:
+                tied_res_list= self.surrogate_tied_residues_list
+            else:
+                tied_res_list= self.design_seq.tied_residues
+                
+            for tied_res, candidate_AA in zip(tied_res_list, candidate):
                 if isinstance(tied_res, TiedResidue):
                     for res in tied_res.residues:
                         if res.chain_id == chain_id:
