@@ -412,7 +412,7 @@ class SavePop(Callback):
                 pkg_dir= self.pkg_dir,
                 comm= self.comm,
                 cluster_parallelization= self.cluster_parallelization,
-                cluster_parallelize_metrics= self.cluster_parallelize_metrics
+                cluster_parallelize_metrics= self.cluster_parallelize_metrics,
                 cluster_time_limit_str= self.cluster_time_limit_str,
                 cluster_mem_free_str= self.cluster_mem_free_str)
             observer_metrics_scores_df= pd.DataFrame(observer_metrics_scores, columns= [str(metric) for metric in self.observer_metrics_list])
@@ -452,7 +452,7 @@ class DumpPop(Callback):
                 pkg_dir= self.pkg_dir,
                 comm= self.comm,
                 cluster_parallelization= self.cluster_parallelization,
-                cluster_parallelize_metrics= self.cluster_parallelize_metrics
+                cluster_parallelize_metrics= self.cluster_parallelize_metrics,
                 cluster_time_limit_str= self.cluster_time_limit_str,
                 cluster_mem_free_str= self.cluster_mem_free_str)
             observer_metrics_scores_df= pd.DataFrame(observer_metrics_scores, columns= [str(metric) for metric in self.observer_metrics_list])
