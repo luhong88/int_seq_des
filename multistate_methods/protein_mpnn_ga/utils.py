@@ -29,7 +29,7 @@ def argsort(x):
 def get_logger(module_name):
     logger= logging.getLogger(module_name)
     logger.propagate= False
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(logging.WARN)
     c_handler= logging.StreamHandler()
     c_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
     logger.addHandler(c_handler)
@@ -177,7 +177,6 @@ export CUDA_VISIBLE_DEVICES=""
 
 python3 -c '{python_str}'
 '''
-    assert mem_free_str is not None, submit_str
     with open(sge_script_loc, 'w') as f:
         f.write(submit_str)
 
