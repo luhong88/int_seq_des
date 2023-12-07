@@ -301,7 +301,7 @@ class ProteinMPNNWrapper(object):
         candidates= self.design_seqs_to_candidates(fa_records, candidate_chains_to_design, base_candidate)
         return candidates
 
-    def score(self, scoring_mode, chains_sublist, pdb_file_name, candidates= None, num_seqs= 1, batch_size= 1, seed= None):
+    def score(self, scoring_mode, chains_sublist, pdb_file_name, candidates= None, num_seqs= 1, batch_size= 1, seed= None, use_surrogate_tied_residues= False):
         '''
         Note here that the temperature setting has no effect on the output scores.
         Only the --score_only mode is configured in ProteinMPNN to take in an input FASTA file.
@@ -323,7 +323,7 @@ class ProteinMPNNWrapper(object):
         file_loc_exec_str+= ['--out_folder', out_dir.name] # override the out folder setting when the wrapper was init.
 
         if scoring_mode == 'score_only' and candidates is not None:
-            input_seqs= ss_protein.candidates_to_full_seqs(candidates)
+            input_seqs= ss_protein.candidates_to_full_seqs(candidates, use_surrogate_tied_residues)
             input_seqs_f= f'{out_dir.name}/input_seqs.fa'
             with open(input_seqs_f, 'w') as f:
                 for seq_ind, seq in enumerate(input_seqs):
@@ -360,7 +360,7 @@ class ProteinMPNNWrapper(object):
         
 
 class ObjectiveProteinMPNNNegLogProb(object):
-    def __init__(self, chain_ids, pdb_file_name, score_type, model_weights_loc, protein_mpnn_run_loc= None, num_seqs= 10, device= 'cpu', sign_flip= False):
+    def __init__(self, chain_ids, pdb_file_name, score_type, model_weights_loc, protein_mpnn_run_loc= None, num_seqs= 10, device= 'cpu', sign_flip= False, use_surrogate_tied_residues= False):
         self.model_weights_loc= model_weights_loc
         if protein_mpnn_run_loc is None:
             self.protein_mpnn_run_loc= os.path.dirname(os.path.realpath(__file__)) + '/../protein_mpnn_pd/protein_mpnn_run.py'
@@ -377,6 +377,8 @@ class ObjectiveProteinMPNNNegLogProb(object):
         self.score_type= score_type
 
         self.sign_flip= sign_flip # sign_flip should be false by default, because negative log probability needs to be minimized
+
+        self.use_surrogate_tied_residues= use_surrogate_tied_residues
 
         model_name= f'protein_mpnn_{"neg_" if not sign_flip else ""}log_prob_{score_type}'
         self.name= model_name + f'_chain_{"".join(self.chain_ids)}'
@@ -406,7 +408,8 @@ class ObjectiveProteinMPNNNegLogProb(object):
             candidates= candidates, 
             num_seqs= self.num_seqs, 
             batch_size= 1, 
-            seed= 1)
+            seed= 1,
+            use_surrogate_tied_residues= self.use_surrogate_tied_residues)
         
         if self.score_type == 'designable_positions':
             score_term= 'score'

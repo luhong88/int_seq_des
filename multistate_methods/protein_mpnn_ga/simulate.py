@@ -18,7 +18,8 @@ def run_single_pass(
         num_seqs, protein_mpnn_batch_size,
         root_seed,
         out_file_name,
-        comm= None):
+        comm= None,
+        score_wt_only= False):
     '''
     This is equivalent to calling ProteinMPNN-PD
     '''
@@ -38,16 +39,20 @@ def run_single_pass(
             method= design_mode,
             base_candidate= base_candidate,
             proposed_des_pos_list= np.arange(protein.design_seq.n_des_res),
-            num_seqs= num_seqs,
-            batch_size= protein_mpnn_batch_size,
+            num_seqs= num_seqs if not score_wt_only else 1,
+            batch_size= protein_mpnn_batch_size if not score_wt_only else 1,
             seed= rng.integers(1000000000)
         )
         t1= time.time()
         logger.info(f'ProteinMPNN total run time: {t1 - t0} s.')
 
-        design_candidates= protein_mpnn.design_seqs_to_candidates(design_fa, chains_to_design, base_candidate)
+        if score_wt_only:
+            design_candidates= [base_candidate]
+            outputs['seq']= [str(design_fa[0].seq)]
+        else:
+            design_candidates= protein_mpnn.design_seqs_to_candidates(design_fa, chains_to_design, base_candidate)
+            outputs['seq']= [str(fa.seq) for fa in design_fa[1:]]
 
-        outputs['seq']= [str(fa.seq) for fa in design_fa[1:]]
         outputs['candidate']= [''.join(candidate) for candidate in design_candidates]
 
         for metric in metrics_list:

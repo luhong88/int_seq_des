@@ -536,7 +536,7 @@ class SingleStateProtein(Protein):
     def parse_tied_positions(self):
         raise AttributeError()
     
-    def candidates_to_full_seqs(self, candidates):
+    def candidates_to_full_seqs(self, candidates, use_surrogate_tied_residues= False):
         logger.debug(f'candidates_to_full_seqs (SingleStateProtein) is called with the following candidates:\n{sep}\n{candidates}\n{sep}\n')
 
         full_seqs= []
@@ -548,7 +548,8 @@ class SingleStateProtein(Protein):
                     candidate= candidate, 
                     drop_terminal_missing_res= True, 
                     drop_internal_missing_res= False, 
-                    replace_missing_residues_with= 'X' # ProteinMPNN uses X to represent gap
+                    replace_missing_residues_with= 'X', # ProteinMPNN uses X to represent gap
+                    use_surrogate_tied_residues= use_surrogate_tied_residues
                 )
 
                 parsed_seqs.append(parsed_seq)
