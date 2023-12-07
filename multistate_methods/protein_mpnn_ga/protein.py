@@ -347,6 +347,7 @@ class Protein(object):
     
     def parse_fixed_chains(self, parsed_pdb_handle):
         chains_to_design= self.design_seq.chains_to_design
+        
         if self.parsed_pdb_json['json']['num_of_chains'] > len(chains_to_design):
             chains_to_design_str= ' '.join(chains_to_design)
             out= tempfile.NamedTemporaryFile()
@@ -492,18 +493,24 @@ class SingleStateProtein(Protein):
     '''
     For ProteinMPNN scoring only
     '''
-    def __init__(self, multistate_protein, chains_sublist, pdb_file_name):
+    def __init__(self, multistate_protein, chains_sublist, pdb_file_name, use_surrogate_tied_residues= False):
 
         '''
         The chains in the chains_sublist and pdb file should match
         '''
         self.surrogate_tied_residues_list= multistate_protein.surrogate_tied_residues_list
+        self.use_surrogate_tied_residues= use_surrogate_tied_residues
 
         chains_sublist.sort(key= sort_order)
         self.chains_sublist= chains_sublist
-
+        
+        if self.use_surrogate_tied_residues:
+            tied_res_list= self.surrogate_tied_residues_list
+        else:
+            tied_res_list= multistate_protein.design_seq.tied_residues
+            
         tied_res_sublist= []
-        for tied_res in multistate_protein.design_seq:
+        for tied_res in tied_res_list:
             if isinstance(tied_res, TiedResidue):
                 res_sublist= [res for res in tied_res if res.chain_id in chains_sublist]
                 new_tied_res= TiedResidue(*res_sublist)
@@ -538,7 +545,7 @@ class SingleStateProtein(Protein):
     def parse_tied_positions(self):
         raise AttributeError()
     
-    def candidates_to_full_seqs(self, candidates, use_surrogate_tied_residues= False):
+    def candidates_to_full_seqs(self, candidates):
         logger.debug(f'candidates_to_full_seqs (SingleStateProtein) is called with the following candidates:\n{sep}\n{candidates}\n{sep}\n')
 
         full_seqs= []
@@ -551,7 +558,7 @@ class SingleStateProtein(Protein):
                     drop_terminal_missing_res= True, 
                     drop_internal_missing_res= False, 
                     replace_missing_residues_with= 'X', # ProteinMPNN uses X to represent gap
-                    use_surrogate_tied_residues= use_surrogate_tied_residues
+                    use_surrogate_tied_residues= self.use_surrogate_tied_residues
                 )
 
                 parsed_seqs.append(parsed_seq)

@@ -307,7 +307,7 @@ class ProteinMPNNWrapper(object):
         Only the --score_only mode is configured in ProteinMPNN to take in an input FASTA file.
         To score candidates in the other modes is not implemented.
         '''
-        ss_protein= SingleStateProtein(self.protein, chains_sublist, pdb_file_name)
+        ss_protein= SingleStateProtein(self.protein, chains_sublist, pdb_file_name, use_surrogate_tied_residues)
         
         if scoring_mode not in ['score_only', 'conditional_probs_only', 'conditional_probs_only_backbone', 'unconditional_probs_only']:
             raise ValueError(f'Unrecognized scoring_mode {scoring_mode}')
@@ -323,7 +323,7 @@ class ProteinMPNNWrapper(object):
         file_loc_exec_str+= ['--out_folder', out_dir.name] # override the out folder setting when the wrapper was init.
 
         if scoring_mode == 'score_only' and candidates is not None:
-            input_seqs= ss_protein.candidates_to_full_seqs(candidates, use_surrogate_tied_residues)
+            input_seqs= ss_protein.candidates_to_full_seqs(candidates)
             input_seqs_f= f'{out_dir.name}/input_seqs.fa'
             with open(input_seqs_f, 'w') as f:
                 for seq_ind, seq in enumerate(input_seqs):
