@@ -497,6 +497,8 @@ class SingleStateProtein(Protein):
         '''
         The chains in the chains_sublist and pdb file should match
         '''
+        self.surrogate_tied_residues_list= multistate_protein.surrogate_tied_residues_list
+
         chains_sublist.sort(key= sort_order)
         self.chains_sublist= chains_sublist
 
