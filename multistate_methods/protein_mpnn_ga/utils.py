@@ -218,6 +218,13 @@ def cluster_manage_job(sge_script_loc, out_file, cluster_time_limit_str):
     
     while True:
         time.sleep(rng.integers(60, 180))
+        job_is_Eqw= 'Eqw' in os.popen(f'qstat | grep {job_id}').read()
+        if job_is_Eqw:
+            os.popen(f'qdel -f {job_id}')
+            time.sleep(rng.integers(10, 120))
+            job_id= sge_submit_job(sge_script_loc)
+            submit_time= time.time()
+
         job_is_running= os.popen(f'qstat -j {job_id} 2>/dev/null').read()
         if job_is_running:
             wall_time= time.time() - submit_time
