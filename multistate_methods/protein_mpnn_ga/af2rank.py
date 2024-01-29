@@ -1,5 +1,5 @@
-# Derived from: https://colab.research.google.com/github/sokrypton/ColabDesign/blob/main/af/examples/AF2Rank.ipynb#scrollTo=UCUZxJdbBjZt
-# See also: https://github.com/jproney/AF2Rank
+# Base on https://colab.research.google.com/github/sokrypton/ColabDesign/blob/main/af/examples/AF2Rank.ipynb#scrollTo=UCUZxJdbBjZt
+# See also https://github.com/jproney/AF2Rank
 
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -8,13 +8,16 @@ from colabdesign import mk_af_model
 from colabdesign.shared.utils import copy_dict
 
 import os, subprocess, random, tempfile, numpy as np
-from datetime import datetime #LH
+from datetime import datetime
 
 def tmscore(x,y, tmscore_exec):
     temp_dir = tempfile.TemporaryDirectory()
     now = datetime.now()
     randint = random.randint(0, 100000)
-    out_names = [f'{temp_dir.name}/{now.strftime("%H%M%S")}_{n}_{hash(str(z))}_{randint}.pdb' for n, z in enumerate([x, y])]
+    out_names = [
+        f'{temp_dir.name}/{now.strftime("%H%M%S")}_{n}_{hash(str(z))}_{randint}.pdb'
+        for n, z in enumerate([x, y])
+    ]
     # save to dumpy pdb files
     for n,z in enumerate([x,y]):
       out = open(out_names[n],"w")
@@ -23,7 +26,12 @@ def tmscore(x,y, tmscore_exec):
                     % (k+1,"CA","ALA","A",k+1,c[0],c[1],c[2],1,0))
       out.close()
     # pass to TMscore
-    proc = subprocess.run([tmscore_exec, out_names[0], out_names[1]], stdout= subprocess.PIPE, stderr= subprocess.PIPE, check= True)
+    proc = subprocess.run(
+        [tmscore_exec, out_names[0], out_names[1]],
+        stdout= subprocess.PIPE, 
+        stderr= subprocess.PIPE, 
+        check= True
+    )
     output = proc.stdout.decode()
 
     # parse outputs
@@ -84,12 +92,6 @@ class af2rank:
 
         i_xyz = self.model._inputs["batch"]["all_atom_positions"][:,1]
         o_xyz = np.array(self.model.aux["atom_positions"][:,1])
-
-        # TMscore to input/output
-        #if hasattr(self,"wt_batch"):
-        #    n_xyz = self.wt_batch["all_atom_positions"][:,1]
-        #    score["tm_i"] = tmscore(n_xyz,i_xyz, self.tmscore_exec)["tms"]
-        #    score["tm_o"] = tmscore(n_xyz,o_xyz, self.tmscore_exec)["tms"]
 
         # TMscore between input and output
         score["tm_io"] = tmscore(i_xyz,o_xyz, self.tmscore_exec)["tms"]

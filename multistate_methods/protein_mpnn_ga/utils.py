@@ -1,7 +1,8 @@
-import os, sys, logging, time, multiprocessing, tempfile, pickle, numpy as np, pandas as pd
-from Bio.PDB import PDBParser, PDBIO
-from difflib import SequenceMatcher
+import textwrap, os, sys, logging, time, multiprocessing, tempfile, pickle
 from datetime import datetime
+
+import numpy as np, pandas as pd
+from Bio.PDB import PDBParser, PDBIO
 
 from pymoo.core.callback import Callback
 from pymoo.core.sampling import Sampling
@@ -16,7 +17,8 @@ class_seeds= {
     'ProteinSampling': 501129
 }
 
-# This function can be passed to sort() or the following custom argsort() to sort chain id into capital letter, lowercase letter, and then numerics
+# This function can be passed to sort() or the following custom argsort() to
+# sort chain id into capital letter, lowercase letter, and then numerics
 def sort_order(x): return x.isnumeric(), int(x) if x.isnumeric() else x
 
 def argsort(x):
@@ -31,7 +33,11 @@ def get_logger(module_name):
     logger.propagate= False
     logger.setLevel(logging.WARN)
     c_handler= logging.StreamHandler()
-    c_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    c_handler.setFormatter(
+        logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+    )
     logger.addHandler(c_handler)
 
     return logger
@@ -53,9 +59,12 @@ class Device(object):
             # limit pytorch to one process
             os.environ['OMP_NUM_THREADS']= '1'
             os.environ['MKL_NUM_THREADS']= '1'
-            # Limit to single-threaded jax/xla operations; see https://github.com/google/jax/issues/743
-            os.environ['XLA_FLAGS']= ("--xla_cpu_multi_thread_eigen=false "
-                                      "intra_op_parallelism_threads=1")
+            # Limit to single-threaded jax/xla operations
+            # see https://github.com/google/jax/issues/743
+            os.environ['XLA_FLAGS']= (
+                "--xla_cpu_multi_thread_eigen=false "
+                "intra_op_parallelism_threads=1"
+            )
             #os.environ['TF_CPP_MIN_LOG_LEVEL']= '2'
     def __exit__(self, type, value, traceback):
         if self.device == 'cpu':
@@ -83,7 +92,12 @@ def _equidistant_points(n_pts, mol_radius, min_dist):
     if n_pts > 1:
         theta= 2*np.pi/n_pts
         radius= (2*mol_radius + min_dist)/(2*np.sin(theta/2.))
-        pos_list= np.asarray([[radius*np.cos(n*theta), radius*np.sin(n*theta), 0.] for n in range(n_pts)])
+        pos_list= np.asarray(
+            [
+                [radius*np.cos(n*theta), radius*np.sin(n*theta), 0.]
+                for n in range(n_pts)
+            ]
+        )
         return pos_list
     else:
         return np.array([[0., 0., 0.]])
@@ -91,7 +105,8 @@ def _equidistant_points(n_pts, mol_radius, min_dist):
 def _lattice_points(n_pts, mol_radius, min_dist):
     unit_len= 2*mol_radius + min_dist
     lattice_dim= int(np.ceil(np.cbrt(n_pts)))
-    lattice_pts= (lattice_dim - 1)*unit_len*np.mgrid[:1:lattice_dim*1j, :1:lattice_dim*1j, :1:lattice_dim*1j].reshape(3, -1).T - (lattice_dim - 1)*unit_len/2
+    grid= np.mgrid[:1:lattice_dim*1j, :1:lattice_dim*1j, :1:lattice_dim*1j].reshape(3, -1).T
+    lattice_pts= (lattice_dim - 1)*unit_len*grid - (lattice_dim - 1)*unit_len/2
     lattice_subset= lattice_pts[:n_pts]
     lattice_subset_centered= lattice_subset - np.mean(lattice_subset, axis= 0)
     return lattice_subset_centered
@@ -107,7 +122,9 @@ def merge_pdb_files(input_files, output_file, min_dist= 24):
         CA_coords_list= []
         for structure in structures:
             if len(structure) > 1:
-                logger.warning(f'More than one models detected in {structure.id}; only the first model will be read and used!')
+                logger.warning(
+                    f'More than one models detected in {structure.id}; only the first model will be read and used!'
+                )
             CA_coords= []
             for chain in structure[0]:
                 for residue in chain:
@@ -118,11 +135,18 @@ def merge_pdb_files(input_files, output_file, min_dist= 24):
             CA_coords_list.append(np.asarray(CA_coords))
         
         old_COM_list= [np.mean(CA_coords, axis= 0) for CA_coords in CA_coords_list]
-        mol_radius_list= [np.max(np.linalg.norm(CA_coords - COM, axis= 1)) for CA_coords, COM in zip(CA_coords_list, old_COM_list)]
+        mol_radius_list= [
+            np.max(np.linalg.norm(CA_coords - COM, axis= 1))
+            for CA_coords, COM in zip(CA_coords_list, old_COM_list)
+        ]
         if len(structures) <= 4:
-            new_COM_list= _equidistant_points(len(structures), np.max(mol_radius_list), min_dist)
+            new_COM_list= _equidistant_points(
+                len(structures), np.max(mol_radius_list), min_dist
+            )
         else:
-            new_COM_list= _lattice_points(len(structures), np.max(mol_radius_list), min_dist)
+            new_COM_list= _lattice_points(
+                len(structures), np.max(mol_radius_list), min_dist
+            )
         
         for structure, old_COM, new_COM in zip(structures, old_COM_list, new_COM_list):
             for chain in structure[0]:
@@ -144,39 +168,49 @@ def merge_pdb_files(input_files, output_file, min_dist= 24):
 def get_array_chunk(arr, rank, size):
     chunk_size= len(arr)/size
     if not chunk_size.is_integer():
-        raise ValueError(f'It is not possible to evenly divide an array of length {len(arr)} into {size} processes.')
+        raise ValueError(
+            f'It is not possible to evenly divide an array of length {len(arr)} into {size} processes.'
+        )
     else:
         chunk_size= int(chunk_size)
         
     return arr[rank*chunk_size:(rank + 1)*chunk_size]
 
-def sge_write_submit_script(sge_script_loc, job_name, time_limit_str, mem_free_str, python_str):
+def sge_write_submit_script(
+    sge_script_loc, 
+    job_name, 
+    time_limit_str, 
+    mem_free_str, 
+    python_str
+):
     '''
     submit a job that requires a single core
     use the -c tag to execute a string through the python interpreter
     '''
     job_name= job_name[:100] # truncate long job names
     
-    submit_str=f'''
-#!/bin/bash
-#$ -cwd
-#$ -N {job_name}
-#$ -o {job_name}.out
-#$ -e {job_name}.err
-#$ -l h_rt={time_limit_str}
-{"#$ -l x86-64-v=3" if "af2rank" in job_name else ""}
-{"#$ -l mem_free="+str(mem_free_str) if mem_free_str is not None else ""}
-#$ -l h=!qb3-atgpu17&!qb3-atgpu17
+    submit_str= textwrap.dedent(
+        f'''\
+        #!/bin/bash
+        #$ -cwd
+        #$ -N {job_name}
+        #$ -o {job_name}.out
+        #$ -e {job_name}.err
+        #$ -l h_rt={time_limit_str}
+        {"#$ -l x86-64-v=3" if "af2rank" in job_name else ""}
+        {"#$ -l mem_free="+str(mem_free_str) if mem_free_str is not None else ""}
+        #$ -l h=!qb3-atgpu17&!qb3-atgpu17
 
-module use $HOME/software/modules
-module load python
+        module use $HOME/software/modules
+        module load python
 
-export TF_CPP_MIN_LOG_LEVEL=3
-export TF_ENABLE_ONEDNN_OPTS=0
-export CUDA_VISIBLE_DEVICES=""
+        export TF_CPP_MIN_LOG_LEVEL=3
+        export TF_ENABLE_ONEDNN_OPTS=0
+        export CUDA_VISIBLE_DEVICES=""
 
-python3 -c '{python_str}'
-'''
+        python3 -c '{python_str}'
+        '''
+    )
     with open(sge_script_loc, 'w') as f:
         f.write(submit_str)
 
@@ -185,7 +219,16 @@ def sge_submit_job(sge_script_loc):
     keep trying to submit the job until it is accepted by the job scheduler
     '''
     current_time= datetime.now()
-    rng= np.random.default_rng([current_time.year, current_time.month, current_time.hour, current_time.minute, current_time.second, current_time.microsecond])
+    rng= np.random.default_rng(
+        [
+            current_time.year, 
+            current_time.month, 
+            current_time.hour, 
+            current_time.minute, 
+            current_time.second, 
+            current_time.microsecond
+        ]
+    )
 
     time_limit= 60*60 # 1 h
     start_time= time.time()
@@ -193,7 +236,8 @@ def sge_submit_job(sge_script_loc):
     while time.time() - start_time < time_limit:
         try:
             time.sleep(rng.integers(10, 60))
-            sge_out= os.popen(f'qsub -terse {sge_script_loc}').read() # return: <job_id>.<ini_ind>-<fin_ind>:<step>
+            # return: <job_id>.<ini_ind>-<fin_ind>:<step>
+            sge_out= os.popen(f'qsub -terse {sge_script_loc}').read() 
             job_id= int(sge_out.split('.')[0])
         except:
             print(f'exceptions detected while attempting to submit {sge_script_loc}')
@@ -204,7 +248,16 @@ def sge_submit_job(sge_script_loc):
 
 def cluster_manage_job(sge_script_loc, out_file, cluster_time_limit_str):
     current_time= datetime.now()
-    rng= np.random.default_rng([current_time.year, current_time.month, current_time.hour, current_time.minute, current_time.second, current_time.microsecond])
+    rng= np.random.default_rng(
+        [
+            current_time.year, 
+            current_time.month, 
+            current_time.hour, 
+            current_time.minute, 
+            current_time.second, 
+            current_time.microsecond
+        ]
+    )
 
     try_limit= 10
     job_id= sge_submit_job(sge_script_loc)
@@ -214,7 +267,8 @@ def cluster_manage_job(sge_script_loc, out_file, cluster_time_limit_str):
 
     pt= datetime.strptime(cluster_time_limit_str, '%H:%M:%S')
     total_seconds= pt.second + pt.minute*60 + pt.hour*3600
-    time_limit= 2*total_seconds # this number can be adjusted to account for the business of the job queue
+    # this number can be adjusted to account for the business of the job queue
+    time_limit= 2*total_seconds 
     
     while True:
         time.sleep(rng.integers(60, 180))
@@ -238,7 +292,10 @@ def cluster_manage_job(sge_script_loc, out_file, cluster_time_limit_str):
                 num_tries+= 1
                 continue
             else:
-                raise RuntimeError(f'output file {out_file} does not exist for the job {sge_script_loc} after {try_limit} attempts due to hanged jobs!')
+                raise RuntimeError(
+                    f'output file {out_file} does not exist for the job {sge_script_loc} ' + \
+                    f'after {try_limit} attempts due to hanged jobs!'
+                )
         else:
             time.sleep(10)
             if os.path.isfile(out_file):
@@ -249,15 +306,30 @@ def cluster_manage_job(sge_script_loc, out_file, cluster_time_limit_str):
                 num_tries+= 1
                 continue
             else:
-                raise RuntimeError(f'output file {out_file} does not exist for the job {sge_script_loc} after {try_limit} attempts due to hanged jobs!')
+                raise RuntimeError(
+                    f'output file {out_file} does not exist for the job {sge_script_loc} ' + \
+                    f'after {try_limit} attempts due to hanged jobs!'
+                )
     
     results= pickle.load(open(out_file, 'rb'))
     return results
 
-def cluster_act_single_candidate(actions_list, candidate, protein, cluster_time_limit_str, cluster_mem_free_str, pkg_dir, candidate_ind= None, result_queue= None):
-    logger.debug(f'cluster_act_single_candidate() get the candidate {candidate} from the full candidates set')
+def cluster_act_single_candidate(
+    actions_list, 
+    candidate, 
+    protein, 
+    cluster_time_limit_str, 
+    cluster_mem_free_str, 
+    pkg_dir, 
+    candidate_ind= None, 
+    result_queue= None
+):
+    logger.debug(
+        f'cluster_act_single_candidate() get the candidate {candidate} from the full candidates set'
+    )
     if result_queue is not None:
-        assert candidate_ind is not None, 'candidate_ind cannot be None if a result_queue is passed to cluster_evaluate_single_candidate()'
+        assert candidate_ind is not None, \
+            'candidate_ind cannot be None if a result_queue is passed to cluster_evaluate_single_candidate()'
 
     try:
         results= []
@@ -270,7 +342,17 @@ def cluster_act_single_candidate(actions_list, candidate, protein, cluster_time_
             pickle.dump(candidate, open(f'{job_dir.name}/candidate.p', 'wb'))
             pickle.dump(protein, open(f'{job_dir.name}/protein.p', 'wb'))
 
-            python_exec_str= f'import pickle, sys; sys.path.insert(0, "{pkg_dir}"); action= pickle.load(open("action.p", "rb")); candidate= pickle.load(open("candidate.p", "rb")); protein= pickle.load(open("protein.p", "rb"));result= action.apply(candidate, protein); pickle.dump(result, open("{out_file}", "wb"))'
+            python_exec_str= '; '.join(
+                [
+                    'import pickle, sys',
+                    f'sys.path.insert(0, "{pkg_dir}")',
+                    'action= pickle.load(open("action.p", "rb"))',
+                    'candidate= pickle.load(open("candidate.p", "rb"))',
+                    'protein= pickle.load(open("protein.p", "rb"))',
+                    'result= action.apply(candidate, protein)',
+                    f'pickle.dump(result, open("{out_file}", "wb"))'
+                ]
+            )
             
             parent_dir= os.getcwd()
             os.chdir(job_dir.name)
@@ -279,13 +361,25 @@ def cluster_act_single_candidate(actions_list, candidate, protein, cluster_time_
                 job_name= str(action),
                 time_limit_str= cluster_time_limit_str,
                 mem_free_str= cluster_mem_free_str,
-                python_str= python_exec_str)
-            result= cluster_manage_job(sge_script_file, out_file, cluster_time_limit_str)
+                python_str= python_exec_str
+            )
+            result= cluster_manage_job(
+                sge_script_file, 
+                out_file, 
+                cluster_time_limit_str
+            )
             results.append(result)
             os.chdir(parent_dir)
             job_dir.cleanup()
 
-        logger.debug(f'cluster_act_single_candidate() received the following broadcasted results:\n{sep}\n{results}\n{sep}\n')
+        logger.debug(
+            textwrap.dedent(
+                f'''\
+                cluster_act_single_candidate() received the following broadcasted results:
+                {sep}\n{results}\n{sep}
+                '''
+            )
+        )
         
         if candidate_ind is None:
             return results
@@ -299,19 +393,22 @@ def cluster_act_single_candidate(actions_list, candidate, protein, cluster_time_
             result_queue.put(e)
 
 def evaluate_candidates(
-        metrics_list,
-        candidates,
-        protein,
-        pkg_dir,
-        comm= None,
-        cluster_parallelization= False,
-        cluster_parallelize_metrics= False,
-        cluster_time_limit_str= None, 
-        cluster_mem_free_str= None
-    ):
+    metrics_list,
+    candidates,
+    protein,
+    pkg_dir,
+    comm= None,
+    cluster_parallelization= False,
+    cluster_parallelize_metrics= False,
+    cluster_time_limit_str= None, 
+    cluster_mem_free_str= None
+):
     if cluster_parallelization == True:
         if comm is not None:
-            logger.info('evaluate_candidates() is called with an MPI comm setting, which will be ignored because cluster_parallelization == True')
+            logger.info(
+                'evaluate_candidates() is called with an MPI comm setting, ' + \
+                'which will be ignored because cluster_parallelization == True'
+            )
 
         jobs= []
         result_queue= multiprocessing.Queue()
@@ -322,14 +419,32 @@ def evaluate_candidates(
                     # need to put candidate in [] because all the metrics are designed to take in a list of candidates
                     proc= multiprocessing.Process(
                         target= cluster_act_single_candidate, 
-                        args= ([metric], [candidate], protein, cluster_time_limit_str, cluster_mem_free_str, pkg_dir, (candidate_ind, metric_ind), result_queue)
+                        args= (
+                            [metric], 
+                            [candidate], 
+                            protein, 
+                            cluster_time_limit_str, 
+                            cluster_mem_free_str, 
+                            pkg_dir, 
+                            (candidate_ind, metric_ind), 
+                            result_queue
+                        )
                     )
                     jobs.append(proc)
                     proc.start()
             else:
                 proc= multiprocessing.Process(
                     target= cluster_act_single_candidate, 
-                    args= (metrics_list, [candidate], protein, cluster_time_limit_str, cluster_mem_free_str, pkg_dir, candidate_ind, result_queue)
+                    args= (
+                        metrics_list, 
+                        [candidate], 
+                        protein, 
+                        cluster_time_limit_str, 
+                        cluster_mem_free_str, 
+                        pkg_dir, 
+                        candidate_ind, 
+                        result_queue
+                    )
                 )
                 jobs.append(proc)
                 proc.start()
@@ -355,15 +470,23 @@ def evaluate_candidates(
                 candidate_ind, metric_ind= result_ind
                 scores[candidate_ind, metric_ind]= np.squeeze(result)
             has_missing_values= np.any(np.isnan(scores))
-            assert not has_missing_values, 'some scores are not returned by multiprocessing!'
-            logger.debug(f'evaluate_candidates() (cluster, cluster_parallelize_metrics == True) received the following broadcasted scores:\n{sep}\n{scores}\n{sep}\n')
+            assert not has_missing_values, \
+                'some scores are not returned by multiprocessing!'
+            logger.debug(
+                f'evaluate_candidates() (cluster, cluster_parallelize_metrics == True) ' + \
+                f'received the following broadcasted scores:\n{sep}\n{scores}\n{sep}\n'
+            )
 
         else:
             new_results_order= [result[0] for result in results_list]
-            assert sorted(new_results_order) == list(range(len(candidates))), 'some scores are not returned by multiprocessing!'
+            assert sorted(new_results_order) == list(range(len(candidates))), \
+                'some scores are not returned by multiprocessing!'
             results_list_sorted= sorted(zip(new_results_order, results_list))
             scores= np.squeeze([result[1][1] for result in results_list_sorted])
-            logger.debug(f'evaluate_candidates() (cluster, cluster_parallelize_metrics == False) received the following broadcasted scores:\n{sep}\n{scores}\n{sep}\n')
+            logger.debug(
+                f'evaluate_candidates() (cluster, cluster_parallelize_metrics == False) ' + \
+                f'received the following broadcasted scores:\n{sep}\n{scores}\n{sep}\n'
+            )
             
         return scores
     
@@ -378,19 +501,37 @@ def evaluate_candidates(
             size= comm.Get_size()
             
             candidates_subset= get_array_chunk(candidates, rank, size)
-            logger.debug(f'scores (rank {rank}; observer) get the candidates_subset {candidates_subset} from the full candidates {candidates}')
+            logger.debug(
+                f'scores (rank {rank}; observer) get the ' + \
+                f'candidates_subset {candidates_subset} from the full candidates {candidates}'
+            )
             for metric in metrics_list:
                 scores.append(metric.apply(candidates_subset, protein))
-            scores= np.vstack(scores).T # reshape scores from (n_metric, n_candidate) to (n_candidate, n_metric)
+            # reshape scores from (n_metric, n_candidate) to (n_candidate, n_metric)
+            scores= np.vstack(scores).T 
             scores= comm.gather(scores, root= 0)
             if rank == 0: scores= np.vstack(scores)
             scores= comm.bcast(scores, root= 0)
-            logger.debug(f'evaluate_candidates() (rank {rank}/{size}) received the following broadcasted scores:\n{sep}\n{scores}\n{sep}\n')
+            logger.debug(
+                f'evaluate_candidates() (rank {rank}/{size}) ' + \
+                f'received the following broadcasted scores:\n{sep}\n{scores}\n{sep}\n'
+            )
 
         return scores
 
 class SavePop(Callback):
-    def __init__(self, protein, metrics_list, observer_metrics_list, pkg_dir, comm= None, cluster_parallelization= False, cluster_parallelize_metrics= False, cluster_time_limit_str= None, cluster_mem_free_str= None):
+    def __init__(
+        self, 
+        protein, 
+        metrics_list, 
+        observer_metrics_list, 
+        pkg_dir, 
+        comm= None, 
+        cluster_parallelization= False, 
+        cluster_parallelize_metrics= False, 
+        cluster_time_limit_str= None, 
+        cluster_mem_free_str= None
+    ):
         super().__init__()
         self.data['pop'] = []
         self.protein= protein
@@ -420,16 +561,39 @@ class SavePop(Callback):
                 cluster_parallelization= self.cluster_parallelization,
                 cluster_parallelize_metrics= self.cluster_parallelize_metrics,
                 cluster_time_limit_str= self.cluster_time_limit_str,
-                cluster_mem_free_str= self.cluster_mem_free_str)
-            observer_metrics_scores_df= pd.DataFrame(observer_metrics_scores, columns= [str(metric) for metric in self.observer_metrics_list])
+                cluster_mem_free_str= self.cluster_mem_free_str
+            )
+            observer_metrics_scores_df= pd.DataFrame(
+                observer_metrics_scores, 
+                columns= [str(metric) for metric in self.observer_metrics_list]
+            )
             pop_df= pd.concat([pop_df, observer_metrics_scores_df], axis= 1)
 
         self.data['pop'].append(pop_df)
 
-        logger.debug(f'SavePop returned the following population:\n{sep}\n{pop_df}\n{sep}\n')
+        logger.debug(
+            textwrap.dedent(
+                f'''\
+                SavePop returned the following population:
+                {sep}\n{pop_df}\n{sep}
+                '''
+            )
+        )
 
 class DumpPop(Callback):
-    def __init__(self, protein, metrics_list, observer_metrics_list, out_file_name, pkg_dir, comm= None, cluster_parallelization= False, cluster_parallelize_metrics= False, cluster_time_limit_str= None, cluster_mem_free_str= None):
+    def __init__(
+        self, 
+        protein, 
+        metrics_list, 
+        observer_metrics_list, 
+        out_file_name, 
+        pkg_dir, 
+        comm= None, 
+        cluster_parallelization= False, 
+        cluster_parallelize_metrics= False, 
+        cluster_time_limit_str= None, 
+        cluster_mem_free_str= None
+    ):
         super().__init__()
         self.protein= protein
         self.metric_name_list= [str(metric) for metric in metrics_list]
@@ -460,15 +624,29 @@ class DumpPop(Callback):
                 cluster_parallelization= self.cluster_parallelization,
                 cluster_parallelize_metrics= self.cluster_parallelize_metrics,
                 cluster_time_limit_str= self.cluster_time_limit_str,
-                cluster_mem_free_str= self.cluster_mem_free_str)
-            observer_metrics_scores_df= pd.DataFrame(observer_metrics_scores, columns= [str(metric) for metric in self.observer_metrics_list])
+                cluster_mem_free_str= self.cluster_mem_free_str
+            )
+            observer_metrics_scores_df= pd.DataFrame(
+                observer_metrics_scores, 
+                columns= [str(metric) for metric in self.observer_metrics_list]
+            )
             pop_df= pd.concat([pop_df, observer_metrics_scores_df], axis= 1)
 
         if (self.comm is None) or (self.comm.Get_rank() == 0):
-            pickle.dump(pop_df, open(f'{self.out_file_name}_{self.iteration}.p', 'wb'))
+            pickle.dump(
+                pop_df, 
+                open(f'{self.out_file_name}_{self.iteration}.p', 'wb')
+            )
             self.iteration+= 1
 
-            logger.debug(f'SavePop dumped to file the following population:\n{sep}\n{pop_df}\n{sep}\n')
+            logger.debug(
+                textwrap.dedent(
+                    f'''\
+                    SavePop dumped to file the following population:
+                    {sep}\n{pop_df}\n{sep}
+                    '''
+                )
+            )
 
 class LoadPop(Sampling):
     def __init__(self, pickle_file_loc):
@@ -480,11 +658,24 @@ class LoadPop(Sampling):
         existing_pop= pickle.load(open(self.pickle_file_loc, 'rb'))
         if isinstance(existing_pop, list):
             # if the pickle file is a list, assume that the last element is a df containing the final population
-            proposed_candidates= np.array([list(candidate) for candidate in existing_pop[-1]['candidate']])
+            proposed_candidates= np.array(
+                [list(candidate) for candidate in existing_pop[-1]['candidate']]
+            )
         elif isinstance(existing_pop, pd.core.frame.DataFrame):
-            proposed_candidates= np.array([list(candidate) for candidate in existing_pop['candidate']])
+            proposed_candidates= np.array(
+                [list(candidate) for candidate in existing_pop['candidate']]
+            )
         else:
-            raise ValueError(f'Unrecognized data format detected from {self.pickle_file_loc}')
+            raise ValueError(
+                f'Unrecognized data format detected from {self.pickle_file_loc}'
+            )
         
-        logger.debug(f'LoadPop read in the following candidates:\n{sep}\n{proposed_candidates}\n{sep}\n')
+        logger.debug(
+            textwrap.dedent(
+                f'''\
+                LoadPop read in the following candidates:
+                {sep}\n{proposed_candidates}\n{sep}
+                '''
+            )
+        )
         return proposed_candidates

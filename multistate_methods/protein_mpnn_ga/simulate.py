@@ -1,25 +1,31 @@
-import time, pickle, numpy as np, pandas as pd
+import time, pickle
+
+import numpy as np, pandas as pd
 
 from pymoo.algorithms.moo.nsga2 import NSGA2
-from pymoo.optimize import minimize
-
 from pymoo.algorithms.moo.nsga3 import NSGA3
+from pymoo.optimize import minimize
 from pymoo.util.ref_dirs import get_reference_directions
 
-from multistate_methods.protein_mpnn_ga.ga_operator import ProteinSampling, MultistateSeqDesignProblem
-from multistate_methods.protein_mpnn_ga.utils import get_logger, class_seeds, LoadPop, SavePop, DumpPop
+from multistate_methods.protein_mpnn_ga.ga_operator import (
+    ProteinSampling, MultistateSeqDesignProblem
+)
+from multistate_methods.protein_mpnn_ga.utils import (
+    get_logger, class_seeds, LoadPop, SavePop, DumpPop
+)
 
 logger= get_logger(__name__)
 
 def run_single_pass(
-        protein,
-        protein_mpnn, design_mode,
-        metrics_list,
-        num_seqs, protein_mpnn_batch_size,
-        root_seed,
-        out_file_name,
-        comm= None,
-        score_wt_only= False):
+    protein,
+    protein_mpnn, design_mode,
+    metrics_list,
+    num_seqs, protein_mpnn_batch_size,
+    root_seed,
+    out_file_name,
+    comm= None,
+    score_wt_only= False
+):
     '''
     This is equivalent to calling ProteinMPNN-PD
     '''
@@ -50,7 +56,11 @@ def run_single_pass(
             design_candidates= [base_candidate]
             outputs['seq']= [str(design_fa[0].seq)]
         else:
-            design_candidates= protein_mpnn.design_seqs_to_candidates(design_fa, chains_to_design, base_candidate)
+            design_candidates= protein_mpnn.design_seqs_to_candidates(
+                design_fa, 
+                chains_to_design, 
+                base_candidate
+            )
             outputs['seq']= [str(fa.seq) for fa in design_fa[1:]]
 
         outputs['candidate']= [''.join(candidate) for candidate in design_candidates]
@@ -71,7 +81,9 @@ def run_single_pass(
 
         chunk_size= num_seqs/size
         if not chunk_size.is_integer():
-            raise ValueError(f'It is not possible to evenly divide {num_seqs} sequences into {size} processes.')
+            raise ValueError(
+                f'It is not possible to evenly divide {num_seqs} sequences into {size} processes.'
+            )
         else:
             chunk_size= int(chunk_size)
         
@@ -89,7 +101,11 @@ def run_single_pass(
         t1= time.time()
         logger.info(f'ProteinMPNN (rank {rank}) total run time: {t1 - t0} s.')
 
-        design_candidates= protein_mpnn.design_seqs_to_candidates(design_fa, chains_to_design, base_candidate)
+        design_candidates= protein_mpnn.design_seqs_to_candidates(
+            design_fa, 
+            chains_to_design, 
+            base_candidate
+        )
         outputs['seq']= [str(fa.seq) for fa in design_fa[1:]]
         outputs['candidate']= [''.join(candidate) for candidate in design_candidates]
 
@@ -107,14 +123,26 @@ def run_single_pass(
             pickle.dump(outputs_df, open(out_file_name + '.p', 'wb'))
     
 def run_nsga2(
-        protein, protein_mpnn,
-        pop_size, n_generation,
-        mutation_operator, crossover_operator, metrics_list,
-        pkg_dir, root_seed, out_file_name, saving_method,
+        protein, 
+        protein_mpnn,
+        pop_size, 
+        n_generation,
+        mutation_operator, 
+        crossover_operator, 
+        metrics_list,
+        pkg_dir, 
+        root_seed, 
+        out_file_name, 
+        saving_method,
         observer_metrics_list= None,
-        comm= None, cluster_parallelization= False, cluster_parallelize_metrics= False,
-        cluster_time_limit_str= None, cluster_mem_free_str= None,
-        restart= False, init_pop_file= None, init_mutation_rate= 0.1
+        comm= None, 
+        cluster_parallelization= False, 
+        cluster_parallelize_metrics= False,
+        cluster_time_limit_str= None, 
+        cluster_mem_free_str= None,
+        restart= False, 
+        init_pop_file= None, 
+        init_mutation_rate= 0.1
     ):
     
     if cluster_parallelization: comm= None
@@ -151,7 +179,18 @@ def run_nsga2(
             ('n_gen', n_generation),
             seed= root_seed if isinstance(root_seed, int) else sum(root_seed),
             verbose= False,
-            callback= DumpPop(protein, metrics_list, observer_metrics_list, out_file_name, pkg_dir, comm, cluster_parallelization, cluster_parallelize_metrics, cluster_time_limit_str, cluster_mem_free_str),
+            callback= DumpPop(
+                protein, 
+                metrics_list, 
+                observer_metrics_list, 
+                out_file_name, 
+                pkg_dir, 
+                comm, 
+                cluster_parallelization, 
+                cluster_parallelize_metrics, 
+                cluster_time_limit_str, 
+                cluster_mem_free_str
+            ),
             copy_algorithm= False
         )
         t1= time.time()
@@ -165,26 +204,51 @@ def run_nsga2(
             ('n_gen', n_generation),
             seed= root_seed if isinstance(root_seed, int) else sum(root_seed),
             verbose= False,
-            callback= SavePop(protein, metrics_list, observer_metrics_list, pkg_dir, comm, cluster_parallelization, cluster_parallelize_metrics, cluster_time_limit_str, cluster_mem_free_str),
+            callback= SavePop(
+                protein, 
+                metrics_list, 
+                observer_metrics_list, 
+                pkg_dir, 
+                comm, 
+                cluster_parallelization, 
+                cluster_parallelize_metrics, 
+                cluster_time_limit_str, 
+                cluster_mem_free_str
+            ),
             copy_algorithm= False
         )
         t1= time.time()
         logger.info(f'NSGA2 total run time: {t1 - t0} s.')
 
         if (comm is None) or (comm.Get_rank() == 0):
-            pickle.dump(results.algorithm.callback.data['pop'], open(out_file_name + '.p', 'wb'))
+            pickle.dump(
+                results.algorithm.callback.data['pop'], 
+                open(out_file_name + '.p', 'wb')
+            )
     else:
         raise KeyError(f'Unknown saving_method {saving_method}')
 
 def run_nsga3(
-        protein, protein_mpnn,
-        pop_size, n_generation,
-        mutation_operator, crossover_operator, metrics_list,
-        pkg_dir, root_seed, out_file_name, saving_method,
+        protein,
+        protein_mpnn,
+        pop_size, 
+        n_generation,
+        mutation_operator, 
+        crossover_operator, 
+        metrics_list,
+        pkg_dir, 
+        root_seed, 
+        out_file_name, 
+        saving_method,
         observer_metrics_list= None,
-        comm= None, cluster_parallelization= False, cluster_parallelize_metrics= False,
-        cluster_time_limit_str= None, cluster_mem_free_str= None,
-        restart= False, init_pop_file= None, init_mutation_rate= 0.1
+        comm= None, 
+        cluster_parallelization= False, 
+        cluster_parallelize_metrics= False,
+        cluster_time_limit_str= None, 
+        cluster_mem_free_str= None,
+        restart= False, 
+        init_pop_file= None, 
+        init_mutation_rate= 0.1
     ):
     
     if cluster_parallelization: comm= None
@@ -229,7 +293,17 @@ def run_nsga3(
             ('n_gen', n_generation),
             seed= root_seed if isinstance(root_seed, int) else sum(root_seed),
             verbose= False,
-            callback= DumpPop(protein, metrics_list, observer_metrics_list, out_file_name, pkg_dir, comm, cluster_parallelization, cluster_time_limit_str, cluster_mem_free_str),
+            callback= DumpPop(
+                protein, 
+                metrics_list, 
+                observer_metrics_list, 
+                out_file_name, 
+                pkg_dir, 
+                comm, 
+                cluster_parallelization, 
+                cluster_time_limit_str, 
+                cluster_mem_free_str
+            ),
             copy_algorithm= False
         )
         t1= time.time()
@@ -243,13 +317,25 @@ def run_nsga3(
             ('n_gen', n_generation),
             seed= root_seed if isinstance(root_seed, int) else sum(root_seed),
             verbose= False,
-            callback= SavePop(protein, metrics_list, observer_metrics_list, pkg_dir, comm, cluster_parallelization, cluster_time_limit_str, cluster_mem_free_str),
+            callback= SavePop(
+                protein, 
+                metrics_list, 
+                observer_metrics_list, 
+                pkg_dir, 
+                comm, 
+                cluster_parallelization, 
+                cluster_time_limit_str, 
+                cluster_mem_free_str
+            ),
             copy_algorithm= False
         )
         t1= time.time()
         logger.info(f'NSGA3 total run time: {t1 - t0} s.')
 
         if (comm is None) or (comm.Get_rank() == 0):
-            pickle.dump(results.algorithm.callback.data['pop'], open(out_file_name + '.p', 'wb'))
+            pickle.dump(
+                results.algorithm.callback.data['pop'], 
+                open(out_file_name + '.p', 'wb')
+            )
     else:
         raise KeyError(f'Unknown saving_method {saving_method}')
