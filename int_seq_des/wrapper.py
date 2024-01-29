@@ -14,6 +14,14 @@ from int_seq_des.utils import (
 logger= get_logger(__name__)
 
 class ObjectiveAF2Rank(object):
+    '''
+    A wrapper for the AF2Rank method. Sequences for protein complexes will be
+    concatenated.
+
+    Currently, a new instance of the AlphaFold2 model is created with each
+    apply() function call. This reduces memory usage at the expense of increased
+    disk I/O overhead.
+    '''
     def __init__(
         self, 
         chain_ids, 
@@ -25,6 +33,31 @@ class ObjectiveAF2Rank(object):
         sign_flip= True, 
         use_surrogate_tied_residues= False
     ):
+        '''
+        Input
+        -----
+        chain_ids (list): a list of chain ID str corresponding to the chains in
+        the template PDB file.
+
+        template_file_loc (str): path to the tempate PDB file.
+
+        tmscore_exec (str): path to the TMscore binary.
+
+        params_dir (str): path to the folder containing AlphaFold2 parameter files.
+
+        score_term (str): a score term from the AF2Rank output to be used as the
+        metric/objective function; allowed score terms include 'plddt', 'pae',
+        'rmsd_io', 'tm_io', or 'composite' (default).
+
+        device (str): where to perform AF2Rank calculations. Set to 'cpu' to force
+        calculations on the CPUs, otherwise the argument has no effect.
+
+        sign_flip (bool): whether to multiply the score by -1. By default set to
+        True so that the metric can be used in a minimization problem.
+
+        use_surrogate_tied_residues: set to True for single-state scoring; False
+        by default.
+        '''
         multimer= True if len(chain_ids) > 1 else False
         # note that the multimer params version might change in the future,
         # depending on alphafold-multimer and colabfold developments.
@@ -56,7 +89,16 @@ class ObjectiveAF2Rank(object):
         
     def apply(self, candidates, protein):
         '''
-        Can handle multiple sequences
+        Input
+        -----
+        candidates (list): a list of design candidates. A candidate is a list of
+        residues at the designable positions.
+        
+        protein (protein.Protein): details of the protein system and design parameters.
+
+        Output
+        -----
+        neg_output (np.ndarray): an array containing the scores for the input candidates.
         '''
         full_seqs= []
         for candidate in candidates:
