@@ -7,10 +7,10 @@ from pymoo.algorithms.moo.nsga3 import NSGA3
 from pymoo.optimize import minimize
 from pymoo.util.ref_dirs import get_reference_directions
 
-from multistate_methods.protein_mpnn_ga.ga_operator import (
+from int_seq_des.ga_operator import (
     ProteinSampling, MultistateSeqDesignProblem
 )
-from multistate_methods.protein_mpnn_ga.utils import (
+from int_seq_des.utils import (
     get_logger, class_seeds, LoadPop, SavePop, DumpPop
 )
 

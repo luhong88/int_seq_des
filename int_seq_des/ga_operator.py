@@ -8,8 +8,8 @@ from pymoo.core.mutation import Mutation
 from pymoo.core.sampling import Sampling
 from pymoo.core.problem import Problem
 
-from multistate_methods.protein_mpnn_ga.wrapper import ObjectiveESM
-from multistate_methods.protein_mpnn_ga.utils import (
+from int_seq_des.wrapper import ObjectiveESM
+from int_seq_des.utils import (
     sort_order, 
     get_logger, 
     sep, 
