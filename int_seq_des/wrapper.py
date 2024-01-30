@@ -15,8 +15,8 @@ logger= get_logger(__name__)
 
 class ObjectiveAF2Rank(object):
     '''
-    A wrapper for the AF2Rank method. Sequences for protein complexes will be
-    concatenated.
+    A wrapper for the AF2Rank method via ColabDesign. Sequences for protein 
+    complexes will be concatenated.
 
     Currently, a new instance of the AlphaFold2 model is created with each
     apply() function call. This reduces memory usage at the expense of increased
@@ -91,14 +91,15 @@ class ObjectiveAF2Rank(object):
         '''
         Input
         -----
-        candidates (list): a list of design candidates. A candidate is a list of
-        residues at the designable positions.
+        candidates (list[list[str]]): a list of design candidates. A candidate is 
+        a list of residues at the designable positions.
         
         protein (protein.Protein): details of the protein system and design parameters.
 
         Output
         -----
-        neg_output (np.ndarray): an array containing the scores for the input candidates.
+        neg_output (np.ndarray[float]): a (N,) array containing the scores for the N 
+        input candidates.
         '''
         full_seqs= []
         for candidate in candidates:
@@ -170,7 +171,14 @@ class ObjectiveAF2Rank(object):
 
 class ObjectiveESM(object):
     '''
-    This method cannot be used to score multimers
+    A wrapper for the pgen package that can be used to score sequences with
+    masked language modeling using ESM models.
+
+    Currently, a new instance of the ESM model is created with each apply() 
+    function call. This reduces memory usage at the expense of increased
+    disk I/O overhead.
+
+    TODO: support multichain protein complexes by concatenating their sequences.
     '''
     def __init__(
         self, 
@@ -180,6 +188,22 @@ class ObjectiveESM(object):
         device= 'cpu', 
         sign_flip= True
     ):
+        '''
+        Input
+        -----
+        chain_id (str): the ID for the chain to be scored.
+
+        script_loc (str): path to the 'likelihood_esm.py' file in the pgen package.
+
+        model_name (str): name of an ESM model; accepted values are 'esm1b',
+        'esm6', 'esm12', 'esm34', and 'esm1v' (default).
+
+        device (str): where to perform ESM calculations. Set to 'cpu' to force
+        calculations on the CPUs, otherwise the argument has no effect.
+
+        sign_flip (bool): whether to multiply the score by -1. By default set to
+        True so that the metric can be used in a minimization problem.
+        '''
         self.chain_id= chain_id
         self.model_name= model_name
         self.device= device
@@ -201,7 +225,23 @@ class ObjectiveESM(object):
 
     def apply(self, candidates, protein, position_wise= False):
         '''
-        Can handle multiple sequences
+        Input
+        -----
+        candidates (list[list[str]]): a list of design candidates. A candidate is 
+        a list of residues at the designable positions.
+        
+        protein (protein.Protein): details of the protein system and design parameters.
+
+        position_wise (bool): set to True to return (psueo)likelihood scores for
+        each residue position on the input chain; set to False (default) to return 
+        a single score for the input chain, which is calculated as the mean of 
+        the per-position scores.
+
+        Output
+        -----
+        neg_output_arr (np.ndarray[float]): a (N, L) array if 'position_wise' is True,
+        or a (N,) array if 'position_wise' is False; here, N is the number of input
+        candidates containing and L is the length of the target chain.
         '''
         with Device(self.device):
             esm_dir= tempfile.TemporaryDirectory()
@@ -293,6 +333,10 @@ class ObjectiveESM(object):
             return neg_output_arr
 
 class ObjectiveDebug(object):
+    '''
+    A sham objective function class that "scores" candidiates with random numbers.
+    Useful for debugging.
+    '''
     def __init__(self):
         self.name= 'debug'
 
@@ -312,8 +356,24 @@ class ObjectiveDebug(object):
         return results
     
 class ObjectiveCombine(object):
-    def __init__(self, objectives, combine_fxn):
+    '''
+    An objective function that can combine other metrics/objective functions
+    using a user-specified function.
 
+    objective functions used to define an ObjectiveCombine objects will be called
+    sequentially and parallelization of this proces is currently not implemented.
+    '''
+    def __init__(self, objectives, combine_fxn):
+        '''
+        Input
+        -----
+        objectives (list): a list of metric/objective function objects; these objects
+        need to have an apply() method that takes in 'candidates' and 'protein'
+        as input arguments.
+
+        combine_fxn (callable): a function that take in an (N,) array-like and
+        returns a single value, where N is the number of objectives.
+        '''
         self.objectives= objectives
         self.combine_fxn= combine_fxn
         self.name= f'combine_{"+".join([str(objective) for objective in objectives])}_using_{combine_fxn.__name__}'
@@ -322,6 +382,19 @@ class ObjectiveCombine(object):
         return self.name
 
     def apply(self, candidates, protein):
+        '''
+        Input
+        -----
+        candidates (list[list[str]]): a list of design candidates. A candidate is 
+        a list of residues at the designable positions.
+        
+        protein (protein.Protein): details of the protein system and design parameters.
+
+        Output
+        -----
+        results (np.ndarray[float]): a (N,) array containing the scores for the N 
+        input candidates.
+        '''
         logger.debug(
             textwrap.dedent(
                 f'''\
@@ -348,6 +421,12 @@ class ObjectiveCombine(object):
         return results
     
 class ProteinMPNNWrapper(object):
+    '''
+    A wrapper for ProteinMPNN.
+
+    Note that the auxiliary json input files are handled by the protein.Protein
+    class rather than this class.
+    '''
     def __init__(
         self, 
         protein, 
@@ -360,11 +439,44 @@ class ProteinMPNNWrapper(object):
         device= 'cpu', 
         protein_mpnn_run_loc= None
     ):
+        '''
+        Input
+        -----
+        protein (protein.Protein): details of the protein system and design parameters.
+
+        temp (float): ProteinMPNN sampling temperature; equivalent to the 'sampling_temp'
+        parameter in ProteinMPNN. Inputting a list of temperatures is not supported.
+
+        model_weights_loc (str): path to the folder containing the desired ProteinMPNN
+        weight parameter files.
+
+        detect_degeneracy (bool): whether to detect and average out degenerate
+        dimensions during tied sequence decoding; useful for (pseudo)symmetry
+        detection. Only relevant for the 'ProteinMPNN-PD' mode; False by default.
+
+        corr_cutoff (float): correlation coefficient threshold for degeneracy
+        detection. Only relevant for the 'ProteinMPNN-PD' mode; default to 0.9.
+
+        uniform_sampling (bool): set to True to perform uniform sampling conditioned
+        on the Pareto front during sequence decoding. Only relevant for the
+        'ProteinMPNN-PD' mode; False by default.
+        
+        geometric_prob (float): parameter for a geometric distribution when picking 
+        which Pareto front to sample from. Only relevant for the 'ProteinMPNN-PD'
+        mode; default to 1.0, which disables sampling outside of the Pareto front.
+
+        device (str): where to perform ProteinMPNN calculations. Set to 'cpu' to 
+        force calculations on the CPUs, otherwise the argument has no effect.
+
+        protein_mpnn_run_loc (str, None): path to the 'protein_mpnn_run.py' file. By
+        default (None) set to None and the object will use the vendorized ProteinMPNN
+        script.
+        '''
         self.protein= protein
 
         if protein_mpnn_run_loc is None:
             protein_mpnn_run_loc= os.path.dirname(os.path.realpath(__file__)) + \
-                '/../protein_mpnn_pd/protein_mpnn_run.py'
+                '/protein_mpnn_run.py'
 
         self.exec_str= [
             sys.executable, protein_mpnn_run_loc,
@@ -392,6 +504,45 @@ class ProteinMPNNWrapper(object):
         batch_size, 
         seed= None
     ):
+        '''
+        Perform sequence design with ProteinMPNN.
+
+        Input
+        -----
+        method (str): how to perform multistate design: 'ProteinMPNN-AD' to perform
+        average decoding for each tied positions, or 'ProteinMPNN-PD' to perform uniform
+        sampling conditioned on the Pareto front at each tied position. 'ProteinMPNN-AD'
+        is the method described in the original ProteinMPNN paper, and should be used
+        for single-state designs.
+
+        base_candidate (list[str]): the WT/parental sequence represented as a 
+        candidate. A candidate is a list of residues at the designable positions.
+
+        proposed_des_pos_list (list[int]): a list containing a subset of the
+        designable positions; the elements correspond to the 0-indices of elements
+        in a candidate.
+
+        num_seqs (int): how many sequences to design; equivalent to the
+        'num_seq_per_target' argument in ProteinMPNN.
+
+        batch_size (int): ProteinMPNN decoding batch size; same as the 'batch_size' 
+        option in ProteinMPNN.
+
+        seed (int, None): the random seed for ProteinMPNN; equivalent to the 'seed'
+        argument in ProteinMPNN.
+
+        Output
+        -----
+        records (list[Bio.SeqRecord.SeqRecord]): a list of Biopython SeqRecord
+        object representing the designed sequences.
+
+        chains_to_design (np.ndarray[str]): an array containing the chains that
+        are redesigned; i.e., the chains must contain residues listed in the
+        'proposed_des_pos_list'. Note that this array is not necessarily the
+        same as the list of all designable chains specified in the self.protein
+        object, because it is possible to select a subset of design positions
+        that do not map onto some of the designable chains.
+        '''
         with Device(self.device):
             if method not in ['ProteinMPNN-AD', 'ProteinMPNN-PD']:
                 raise ValueError('Invalid method definition.')
@@ -460,6 +611,27 @@ class ProteinMPNNWrapper(object):
         candidate_chains_to_design, 
         base_candidate
     ):
+        '''
+        convert a list of designed sequences to a list of candidates. A candidate 
+        is a list of residues at the designable positions.
+
+        Input
+        -----
+        fa_records (list[Bio.SeqRecord.SeqRecord]): a list of Biopython SeqRecord
+        object representing the designed sequences.
+
+        candidate_chains_to_design (np.array[str]): an array containing the chains
+        that are redesigned.
+
+        base_candidate (list[str]): the WT/parental sequence represented as a 
+        candidate.
+
+        Output
+        -----
+        candidates (np.array([str])): an (N, L) array containing the designed
+        sequences as candidates; here, N is the number of designed sequences,
+        and L is the length of a candidate.
+        '''
         AA_locator= []
         for tied_res in self.protein.design_seq.tied_residues:
             if isinstance(tied_res, TiedResidue):
@@ -482,7 +654,8 @@ class ProteinMPNNWrapper(object):
             seq_list.append(seq_dict)
         
         candidates= []
-        # skip the first element in seq_list, since ProteinMPNN will always output the input sequence as the first output
+        # skip the first element in seq_list, since ProteinMPNN will always output 
+        # the input sequence as the first output
         for seq in seq_list[1:]:
             candidate= base_candidate.copy()
             for candidate_ind, (chain_id, res_ind) in enumerate(AA_locator):
@@ -512,6 +685,11 @@ class ProteinMPNNWrapper(object):
         batch_size, 
         seed= None
     ):
+        '''
+        A utility function that calls design() and pass the outputs to
+        design_seqs_to_candidates(); see the docstrings of these two functions
+        for more information.
+        '''
         fa_records, candidate_chains_to_design= self.design(
             method, 
             base_candidate, 
@@ -537,9 +715,46 @@ class ProteinMPNNWrapper(object):
         use_surrogate_tied_residues= False
     ):
         '''
+        Use ProteinMPNN to score sequences.
+
         Note here that the temperature setting has no effect on the output scores.
-        Only the --score_only mode is configured in ProteinMPNN to take in an input FASTA file.
-        To score candidates in the other modes is not implemented.
+
+        Input
+        -----
+        scoring_mode (str): a ProteinMPNN scoring mode; accepted values are
+        'score_only', 'conditional_probs_only', 'conditional_probs_only_backbone', 
+        and 'unconditional_probs_only'. See ProteinMPNN for more details. Note
+        that only the 'score_only' mode accepts 'candidiates', this is because
+        only the 'score_only' mode is configured in ProteinMPNN to take in an
+        input FASTA file.
+
+        chains_sublist (list[str]): a list of chain IDs; should match the content
+        of 'pdb_file_name'.
+
+        pdb_file_name (str): path to the PDB file containing the structure against
+        which the sequences will be scored.
+
+        candidates (list[list[str]], None): a list of candidates to be scored. If
+        None (default), then score the sequence(s) in the 'pdb_file_name'.
+
+        num_seqs (int): how many times to score the sequences; default to 1, but
+        a higher number reduces stochasticity in the output scores; equivalent
+        to the 'num_seq_per_target' argument in ProteinMPNN.
+
+        batch_size (int): ProteinMPNN decoding batch size; same as the 'batch_size' 
+        option in ProteinMPNN. Default to 1.
+
+        seed (int, None): the random seed for ProteinMPNN; equivalent to the 'seed'
+        argument in ProteinMPNN.
+
+        use_surrogate_tied_residues (bool): set to True for single-state scoring; 
+        False by default.
+
+        Output
+        -----
+        outputs (list[dict]): a (N,) list of dictionaries containing the ProteinMPNN
+        .npz score results. If 'candidates' is not None, then N is the number of
+        candidates; otherwise N = 1.
         '''
         ss_protein= SingleStateProtein(
             self.protein, 
@@ -667,6 +882,10 @@ class ProteinMPNNWrapper(object):
         
 
 class ObjectiveProteinMPNNNegLogProb(object):
+    '''
+    A class for scoring sequences with ProteinMPNN negative log likelihood scores;
+    essentially a wrapper of ProteinMPNNWrapper.score().
+    '''
     def __init__(
         self, 
         chain_ids, 
@@ -679,10 +898,42 @@ class ObjectiveProteinMPNNNegLogProb(object):
         sign_flip= False, 
         use_surrogate_tied_residues= False
     ):
+        '''
+        Input
+        -----
+        chain_ids (list[str]): a list of chain IDs; should match the content
+        of 'pdb_file_name'.
+
+        pdb_file_name (str): path to the PDB file containing the structure against
+        which the sequences will be scored.
+
+        score_type (str): set to 'designable_positions' to compute a per-sequence
+        score by averaging over scores at the designable positions; set to 
+        'all_positions' to average over all positions in the input PDB.
+
+        model_weights_loc (str): path to the folder containing the desired ProteinMPNN
+        weight parameter files.
+
+        protein_mpnn_run_loc (str, None): path to the 'protein_mpnn_run.py' file. By
+        default (None) set to None and the object will use the vendorized ProteinMPNN
+        script.
+
+        num_seqs (int): how many times to score the sequences; default to 10; 
+        equivalent to the 'num_seq_per_target' argument in ProteinMPNN.
+
+        device (str): where to perform ProteinMPNN calculations. Set to 'cpu' to 
+        force calculations on the CPUs, otherwise the argument has no effect.
+
+        sign_flip (bool): whether to multiply the score by -1. By default set to
+        False so that the metric can be used in a minimization problem.
+
+        use_surrogate_tied_residues (bool): set to True for single-state scoring; 
+        False by default.
+        '''
         self.model_weights_loc= model_weights_loc
         if protein_mpnn_run_loc is None:
             self.protein_mpnn_run_loc= os.path.dirname(os.path.realpath(__file__)) + \
-                '/../protein_mpnn_pd/protein_mpnn_run.py'
+                '/protein_mpnn_run.py'
         else:
             self.protein_mpnn_run_loc= protein_mpnn_run_loc
 
@@ -710,6 +961,19 @@ class ObjectiveProteinMPNNNegLogProb(object):
         return self.name
     
     def apply(self, candidates, protein):
+        '''
+        Input
+        -----
+        candidates (list[list[str]]): a list of design candidates. A candidate is 
+        a list of residues at the designable positions.
+        
+        protein (protein.Protein): details of the protein system and design parameters.
+
+        Output
+        -----
+        neg_mean_scores (np.ndarray[float]): a (N,) array containing the scores for the N 
+        input candidates.
+        '''
         logger.debug(
             textwrap.dedent(
                 f'''\
@@ -762,5 +1026,4 @@ class ObjectiveProteinMPNNNegLogProb(object):
         )
 
         return neg_mean_scores
-        
         

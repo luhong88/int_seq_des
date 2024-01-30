@@ -9,6 +9,23 @@ from int_seq_des.utils import (
 logger= get_logger(__name__)
 
 class Residue(object):
+    '''
+    A class for storing information about designable residue positions.
+
+    Attributes
+    -----
+    chain_id (str): the residue chain ID.
+
+    resid (int): the residue ID; need to match the residue ID in the input PDB file.
+    Note that this is NOT the 0-index or 1-index of the residue in the PDB file.
+
+    weight (float): state weight for multistate design.
+
+    alowed_AA (str): a list of residues (one-letter) allowed for design; by
+    default all standard residue types are allowed. If Residue is used as part of 
+    TiedResidue, this attribute will not be used. Currently, only the random 
+    resetting operator utilizes this attribute.
+    '''
     def __init__(self, chain_id, resid, weight, omit_AA= None):
         if not isinstance(chain_id, str):
             raise TypeError(f'chain_id {chain_id} is not a str.')
@@ -21,7 +38,6 @@ class Residue(object):
         self.resid= resid
         self.weight= weight
 
-        # omit_AA is used only when Residue is not used as part of a TiedResidue
         self.allowed_AA= alphabet
         if omit_AA is not None:
             if not isinstance(omit_AA, str):
@@ -30,6 +46,22 @@ class Residue(object):
                 self.allowed_AA= self.allowed_AA.replace(AA, '')
 
 class TiedResidue(object):
+    '''
+    A class for tied residues. Tied residues are the basic unit of redesign in
+    a multistate design problem.
+
+    Attributes
+    -----
+    residues (list[Residue]): a variable number of Residue objects that will be
+    tied for multistate design.
+
+    alowed_AA (str): a list of residues (one-letter) allowed for design; by
+    default all standard residue types are allowed. Will overwrite the alow_AA 
+    attribute of the constituent Residue objects.
+
+    chain_ids_unique (list[str]): a list of chain that contain the constituent
+    Residue objects.
+    '''
     def __init__(self, *residues, omit_AA= None):
         self.residues= residues
         self.allowed_AA= alphabet
@@ -62,7 +94,24 @@ class TiedResidue(object):
 
 class DesignSequence(object):
     '''
-    We will relax the assumptions and allow for a mixture of both tied and un-tied positions
+    A class that defines the set of designable positions.
+
+    Attributes
+    -----
+    tied_residues (list[Residue | TiedResidue]): a list of residues and/or
+    tied residues that will be allowed for redesign. Note that mixing Residue and
+    TiedResidue objects is not well tested.
+
+    has_no_tied_residues (bool): whether any of the designable positions are tied.
+
+    n_des_res (int): the number of designable (tied) residues.
+
+    chains_to_design (list[str]): a list of sorted chain IDs that contain all
+    designable (tied) residues.
+
+    chain_des_pos_dict (dict[str, list[str]]): a dictionary where the keys are the
+    chain IDs and the corresponding values are lists of residue IDs for the (tied)
+    residues in the chain.
     '''
     def __init__(self, *residues):
         self.tied_residues= residues
@@ -115,7 +164,37 @@ class DesignSequence(object):
         return '[' + ', '.join([str(tied_res) for tied_res in self]) + ']'
 
 class Chain(object):
-    # designable chains are mandatory, non-designable chains are mandatory if scored by AF2Rank
+    '''
+    A class that defines a protein chain.
+
+    Attributes
+    -----
+    chain_id (str)
+    
+    init_resid (int): the residue ID of the first residue in the chain; need to 
+    match the input PDB.
+
+    fin_resid (int): the residue ID of the last residue in the chain; need to
+    match the input PDB.
+
+    resid_range (list[int]): a list containing the init_resid and the fin_resid.
+
+    internal_missing_res_list (list[int]): a list of residue IDs that are missing
+    in the input PDB; note that missing residues before init_resid or after
+    fin_resid do not count.
+
+    full_seq (str): the full sequence of the chain, including all terminal and
+    internal missing residues. Note that this does not need to agree with the
+    sequence in the input PDB; the full_seq will override the PDB sequence during
+    ProteinMPNN PDB parsing.
+
+    is_designable (bool): whether the chain contains designable (tied) residues.
+    This attribute is added when the Chain object is passed to a Protein object.
+
+    neighbors_list (list[str]): a list of chain IDs with which the chain forms
+    a protein complex. This attribute is added when the Chain object is passed
+    to a Protein object.
+    '''
     def __init__(
         self, 
         chain_id, 
@@ -143,7 +222,6 @@ class Chain(object):
 
         self.internal_missing_res_list= internal_missing_res_list
 
-        # should include all missing residues; do not need to agree with template seqs
         self.full_seq= full_seq 
 
         logger.debug(
@@ -161,6 +239,59 @@ class Chain(object):
         )
 
 class Protein(object):
+    '''
+    A class that defines the protein for redesign. In addition, handles generation
+    and parsing of input json files for ProteinMPNN, as well as the conversion
+    of different representations of protein sequences.
+
+    Note that not all ProteinMPNN functionalities are reproduced in this class;
+    e.g., omitting AA and adding a PSSM are currently not implemented.
+
+    Attributes
+    -----
+    design_seq (DesignSequence): definition of the designable (tied) residues.
+
+    chain_neighbors_list (list[list[str]]): a list of chain "neighbor" definitions;
+    a set of chains are considered "neighbors" if they are part of a protein
+    complex. For example, [['A', 'B'], ['C']] indicates that three chains need
+    to be considered for the design problem; chains A and B form a complex with
+    each other, but not with chain C.
+
+    chains_list (list[Chain]): a list of chains in the input PDB files.
+    When setting up a design problem, only designable chains are mandatory.
+    Non-designable chains are mandatory if scored by AF2Rank. The chains_list
+    is updated by __init__() in the sense that the list will be sorted by chain ID,
+    and each chain will be annotated with the 'is_designable' and 'neighbors_list' 
+    attributes.
+
+    chains_dict (dict[str, Chain]): same as chains_list, but as a dictionary.
+
+    surrogate_tied_residues_list (list[TiedResidue], None): a list of tied residues.
+    In a multistate design problem, one might be interested in how sequences generated
+    from single-state designs will be scored against an alternative state. In this
+    scenario, Protein.design_seq should be defined by Residue objects to perform
+    single-state design, but Protein.surrogate_tied_residues_list should contain
+    TiedResidue objects for scoring so that the algorithm understands how to
+    "translate" sequence changes made to one state to another state.
+
+    pdb_files_dir (str): path to the directory containing all input PDB files.
+    The files will be combined into a single PDB file and passed to ProteinMPNN.
+
+    helper_scripts_dir (str): path to the ProteinMPNN 'helper_scripts' directory.
+    This attribute belongs to Protein rather than ProteinMPNNWrapper because the
+    Protein class handles the generation and parsing of all input json files.
+    
+    parsed_pdb_json (dict): the PDB parsing output; see parse_pdbs() for more details.
+
+    parsed_fixed_chains (dict, None): the fixed chains parsing output; see
+    parse_fixed_chains() for more details.
+
+    parsed_fixed_positions (dict, None): the fixed positions parsing output;
+    see parse_fixed_positions() for more details.
+
+    parsed_tied_positions (dict, None): the tied positions parsing output;
+    see parse_tied_positions() for more details.
+    '''
     def __init__(
         self, 
         design_seq, 
@@ -170,11 +301,6 @@ class Protein(object):
         protein_mpnn_helper_scripts_dir, 
         surrogate_tied_residues_list= None
     ):
-        '''
-        Input structures must have the correct chain id
-        It is okay to have gaps in the chains; resid 1-indexed
-        
-        '''
         self.design_seq= design_seq
         self.chains_neighbors_list= chains_neighbors_list
         self.surrogate_tied_residues_list= surrogate_tied_residues_list
@@ -213,7 +339,6 @@ class Protein(object):
                             f'({chain.init_resid}-{chain.fin_resid}) is out of bounds.'
                         )
 
-        # chains_list should only include designable chains
         # ensure that the chains are listed in alphabetical order
         # need python >=3.7 to ensure the dict remembers insertion order
         chain_id_list= [chain.chain_id for chain in updated_chains_list]
@@ -237,6 +362,16 @@ class Protein(object):
         parsed_pdb_handle.close()
     
     def get_candidate(self):
+        '''
+        Translate self into a candidate.
+
+        Output
+        -----
+        candidate (list[str]): a list of residues at the designable positions
+        specified by self.design_seq. Note that the residue identities are not
+        parsed from the full_seq attribute of Chain objects, rather than from
+        input PDB files.
+        '''
         candidate= []
         for tied_res in self.design_seq.tied_residues:
             if isinstance(tied_res, TiedResidue):
@@ -261,7 +396,35 @@ class Protein(object):
         replace_missing_residues_with= None,
         use_surrogate_tied_residues= False # useful for single state designs
     ):
-        
+        '''
+        Translate a candidate into the sequence of a specific chain.
+
+        Input
+        -----
+        chain_id (str)
+
+        candidte (list[str]): a design candidate represented as a list of residues
+        at the designable positions.
+
+        drop_terminal_missing_res (bool): whether to include terminal missing
+        residues in the output sequence.
+
+        drop_internal_missing_res (bool): whether to include internal missing
+        residues in the output sequence.
+
+        replace_missing_residues_with (str, None): for any missing residues that
+        are not dropped, replace their residue types with this token; typically
+        either '-' or 'X', depending on the model in question. If set to None
+        (default), then do not perform replacement.
+
+        use_surrogate_tied_residues (bool): set to True for single-state scoring;
+        False by default.
+
+        Output
+        -----
+        output_seq (str): sequence of 'chain_id' that has been updated based on
+        'candidate'.
+        '''  
         full_seq= np.array(
             list(self.chains_dict[chain_id].full_seq),
             dtype= object
@@ -324,11 +487,33 @@ class Protein(object):
         drop_internal_missing_res= False
     ):
         '''
-        input candidate_des_pos_list is a 0-indexed list of indices for the candidate array elements
-        output chain_des_pos_list is a 0-indexed, list of indices for the corresponding residues in a given chain,
-        conditioned on the inclusion/exclusion of missing residues
-        if a des_pos does not map onto the chain, the returned index is None
-        the function depends on the assumption that residues on the same chain cannot be tied together
+        Convert 0-index of a candidate (or, equivalently, self.design_seq.tied_residues)
+        to 0-index of residues in a chain. The function depends on the assumption
+        that residues on the same chain cannot be tied together. Useful in cases
+        where one might want to select a subset of designable (tied) residues
+        in a candidate and check chain-specific properties at the corresponding
+        residue positions.
+
+        Input
+        -----
+        candidate_des_pos_list (list[int]): a list of 0-indices, which map onto
+        elements of self.design_seq.tied_residues.
+
+        chain_id (str)
+
+        drop_terminal_missing_res (bool): whether to count the terminal
+        missing residues when converting to residue 0-indicies.
+
+        drop_internal_missing_res (bool): whether to count the internal
+        missing residues when converting to residue 0-indicies.
+
+        Output
+        -----
+        chain_des_pos_list (list[int], None): a list of 0-indices, which map onto
+        residues in 'chain_id', conditioned on the inclusion/exclusion of missing
+        residues. If an element of candidate_des_pos_list cannot be mapped onto
+        any residues in a chain, then the corresponding element in chain_des_pos_list
+        is None.
         '''
         chain_des_pos_list= []
         for des_pos in candidate_des_pos_list:
