@@ -276,6 +276,7 @@ class Protein(object):
 
     pdb_files_dir (str): path to the directory containing all input PDB files.
     The files will be combined into a single PDB file and passed to ProteinMPNN.
+    As a result, each chain in this set of PDB files must have a distinct ID.
 
     helper_scripts_dir (str): path to the ProteinMPNN 'helper_scripts' directory.
     This attribute belongs to Protein rather than ProteinMPNNWrapper because the
@@ -595,6 +596,25 @@ class Protein(object):
         return chain_des_pos_list
 
     def parse_pdbs(self, pdbs_list= None):
+        '''
+        A wrapper for the ProteinMPNN helper script 'parse_multiple_chains.py'.
+
+        Input
+        -----
+        pdbs_list (list[str]): a list of input PDB file names. Takes precedence
+        over self.pdb_files_dir if not set to None. If set to None (default), 
+        look for *.pdb files in self.pdb_files_dir instead.
+
+        Output
+        -----
+        parsed_pdbs_dict (dict): a dictionary object with two keys: 'json', which
+        corresponds to the dict of PDB parsing results, and 'exec_str', which
+        corresponds to the ProteinMPNN flag to which the parsing results should
+        be passed.
+
+        out (tempfile.NamedTemporaryFile): a temporary file object containing
+        the PDB parsing results. Note that the file handle is closed in __init__().
+        '''
         combined_pdb_file_dir= tempfile.TemporaryDirectory()
         if pdbs_list is None:
             pdbs_list= glob.glob(f'{self.pdb_files_dir}/*.pdb')
@@ -634,7 +654,8 @@ class Protein(object):
         with open(out.name, 'r') as f:
             parsed_pdb_json= json.load(f)
 
-        # correct any discrepancy between the sequence given by the chain objects vs. the sequence read in from the pdb files
+        # correct any discrepancy between the sequence given by the chain objects vs.
+        # the sequence read in from the pdb files
         # this will update both the designable and non-designed chains that are provided
         for chain_id in self.chains_dict.keys():
             old_full_seq= parsed_pdb_json[f'seq_chain_{chain_id}']
@@ -701,6 +722,22 @@ class Protein(object):
         return {'json': parsed_pdb_json, 'exec_str': 'jsonl_path'}, out
     
     def parse_fixed_chains(self, parsed_pdb_handle):
+        '''
+        A wrapper for the ProteinMPNN helper script 'assign_fixed_chains.py'.
+
+        Input
+        -----
+        parsed_pdb_handle (tempfile.NamedTemporaryFile): a temporary file object 
+        containing the PDB parsing results; provided by parse_pdbs().
+
+        Output
+        -----
+        If every chain in the parsed PDB file is designable, then returns None.
+        Otherwise returns a dictionary object with two keys: 'json', which
+        corresponds to the dict of fixed chains parsing results, and 'exec_str', 
+        which corresponds to the ProteinMPNN flag to which the parsing results
+        should be passed.
+        '''
         chains_to_design= self.design_seq.chains_to_design
         
         if self.parsed_pdb_json['json']['num_of_chains'] > len(chains_to_design):
@@ -749,6 +786,22 @@ class Protein(object):
             return None
         
     def parse_fixed_positions(self, parsed_pdb_handle):
+        '''
+        A wrapper for the ProteinMPNN helper script 'make_fixed_positions_dict.py'.
+
+        Input
+        -----
+        parsed_pdb_handle (tempfile.NamedTemporaryFile): a temporary file object 
+        containing the PDB parsing results; provided by parse_pdbs().
+
+        Output
+        -----
+        If every residue in the designable chains is designable, then returns None.
+        Otherwise returns a dictionary object with two keys: 'json', which
+        corresponds to the dict of fixed positions parsing results, and 'exec_str', 
+        which corresponds to the ProteinMPNN flag to which the parsing results
+        should be passed.
+        '''
         fixed_pos_str= []
         chains_str= []
         for chain_id, des_pos in self.design_seq.chain_des_pos_dict.items():
@@ -819,6 +872,16 @@ class Protein(object):
             }
     
     def parse_tied_positions(self):
+        '''
+        A helper function for generating tied positions dict.
+
+        Output
+        -----
+        If no designable position is tied, then returns None. Otherwise returns a 
+        dictionary object with two keys: 'json', which corresponds to the dict of
+        tied positions parsing results, and 'exec_str', which corresponds to the
+        ProteinMPNN flag to which the parsing results should be passed.
+        '''
         if self.design_seq.has_no_tied_residues:
             return None
         else:
@@ -863,6 +926,18 @@ class Protein(object):
         raise NotImplementedError()
 
     def get_CA_coords(self, chain_id):
+        '''
+        Get the CA coordinates of a chain from self.parsed_pdb_json.
+
+        Input
+        -----
+        chain_id (str)
+
+        Output
+        -----
+        CA_coords (np.ndarray): a (L, 3) array containing CA Cartesian coordinates;
+        here, L is the number of residues in target chain.
+        '''
         CA_coords= np.asarray(
             self.parsed_pdb_json['json'][f'coords_chain_{chain_id}'][f'CA_chain_{chain_id}']
         )
@@ -880,6 +955,18 @@ class Protein(object):
         return CA_coords
 
     def dump_jsons(self):
+        '''
+        Write the parsing results from parse_pdbs(), parse_fixed_chains(),
+        parse_fixed_positions(), and parse_tied_positions() to json files.
+
+        Output
+        -----
+        out_dir (tempfile.TemporaryDirectory): a temporary directory object, to
+        which all json files are written.
+
+        exec_str (list[str]): a list of commandline arguments that enable
+        ProteinMPNN to read in the parsed json files.
+        '''
         out_dir= tempfile.TemporaryDirectory()
         outputs= [
             self.parsed_pdb_json,
@@ -895,10 +982,6 @@ class Protein(object):
                 with open(output_loc, 'w') as f:
                     json.dump(output['json'], f)
                     exec_str+= ['--' + output['exec_str'], output_loc]
-                #debug
-                #output_loc= f'./{output["exec_str"]}.json'
-                #with open(output_loc, 'w') as f:
-                #    json.dump(output['json'], f)
         
         logger.debug(
             textwrap.dedent(
@@ -911,7 +994,24 @@ class Protein(object):
         return out_dir, exec_str
 
 class DesignedProtein(Protein):
+    '''
+    A subclass of Protein used to represent a redesigned protein. A DesignedProtein
+    modifies a Protein in two ways. First, it updates the chain sequences based
+    on a provided candidate. Second, it updates the DesignSequence attribute based
+    on a given subset of (tied) designable positions.
+    '''
     def __init__(self, wt_protein, base_candidate, proposed_des_pos_list):
+        '''
+        Input
+        -----
+        wt_protein (Protein): the WT/parental Protein object.
+
+        base_candidate (list[str]): a candidate, which is used to update the
+        'wt_protein' sequences.
+
+        proposed_des_pos_list (list[int]): a list of 0-indices, which is used to
+        select a subset of the 'wt_protein.des_seq' to be used as self.des_seq.
+        '''
         if len(proposed_des_pos_list) == 0:
             raise RuntimeError(
                 f'The proposed_des_pos_list for DesignedProtein is empty!'
@@ -956,7 +1056,9 @@ class DesignedProtein(Protein):
     
 class SingleStateProtein(Protein):
     '''
-    For ProteinMPNN scoring only
+    A sublcass of Protein used for single-state ProteinMPNN scoring; as such, the 
+    methods candidate_to_chain_des_pos() and parse_tied_positions() from Protein 
+    are disabled.
     '''
     def __init__(
         self, 
@@ -965,9 +1067,21 @@ class SingleStateProtein(Protein):
         pdb_file_name, 
         use_surrogate_tied_residues= False
     ):
-
         '''
-        The chains in the chains_sublist and pdb file should match
+        Input
+        -----
+        multistate_protein (Protein)
+
+        chains_sublist (list[str]): a list of chain IDs that correspond to a 
+        single state of 'multistate_protein'; the chain IDs must match those
+        present in the 'pdb_file_name' PDB structure.
+
+        pdb_file_name (str): a path to a pdb file that represents a single
+        state of 'multistate_protein'.
+
+        use_surrogate_tied_residues (bool): if the 'multistate_protein' already
+        presents a single-state design problem, this argument needs to be set to
+        True to enable scoring of the alternative states. False by default.
         '''
         self.surrogate_tied_residues_list= multistate_protein.surrogate_tied_residues_list
         self.use_surrogate_tied_residues= use_surrogate_tied_residues
@@ -1036,6 +1150,21 @@ class SingleStateProtein(Protein):
         raise AttributeError()
     
     def candidates_to_full_seqs(self, candidates):
+        '''
+        Convert a list of candidates to a list of sequences. If the state represented
+        by the class contains multiple chains ('self.chains_sublist'), then the
+        chain sequences will be concatenated and separated by '/'. Internal
+        missing residues are represented by 'X'. The purpose of this method is
+        to provide ProteinMPNN-parsable sequences for scoring purposes.
+
+        Input
+        -----
+        candidates (list[list(str)]): a list of candidates.
+
+        Output
+        -----
+        full_seqs (list[str]): a list of sequences translated from the 'candidates'.
+        '''
         logger.debug(
             textwrap.dedent(
                 f'''\
