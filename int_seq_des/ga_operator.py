@@ -23,14 +23,77 @@ from int_seq_des.utils import (
 logger= get_logger(__name__)
 
 class MutationMethod(object):
+    '''
+    A "factory" class for constructing custom mutation operators. This class
+    implements two groups of (private) methods: methods for picking design
+    positions, and methods for proposing redesigned residues at the design
+    positions. The first group includes _random_sampling(), _spatially_coupled_sampling(),
+    _esm_then_cutoff(), and _esm_then_spatial(); the second group includes
+    _random_resetting() and _protein_mpnn().
+
+    the primary user interface is provided by the apply() method, which calls
+    the choose_pos() method to pick design positions, and then the choose_AA()
+    method to generate design candidates.
+    '''
     # all private methods are written to handle a single candidate at each call
     def __init__(
-        self, choose_pos_method, choose_AA_method, prob,
-        mutation_rate, sigma= None,
+        self, 
+        choose_pos_method, 
+        choose_AA_method, 
+        prob,
+        mutation_rate, 
+        sigma= None,
         protein_mpnn= None,
-        esm_script_loc= None, esm_model= None, esm_device= None
+        esm_script_loc= None, 
+        esm_model= None, 
+        esm_device= None
     ):
+        '''
+        Input
+        -----
+        choose_pos_method (str): specify the method for choosing designable
+        positions; accepted values are 'random', 'spatial_coupling', 'likelihood_ESM',
+        and 'ESM+spatial'. These values correspond to the methods _random_sampling(), 
+        _spatially_coupled_sampling(), _esm_then_cutoff(), and _esm_then_spatial().
+
+        choose_AA_method (str): specify the method for proposing mutations at the
+        chosen design positions; accepted values are 'random', 'ProteinMPNN-AD',
+        and 'ProteinMPNN-PD'. 'random' corresponds to the method _random_resetting(),
+        and the latter two corresponds to the method _protein_mpnn().
+
+        prob (float): a number between [0, 1] to specify the probability that the
+        MutationMethod will be applied. This value is only meaningful if a list
+        of multiple MutationMethod objects is provided to the ProteinMutation object,
+        in which case whenever the mutation operator is called by the genetic
+        algorithm, one of the MutationMethod objects will be picked according to
+        the 'prob' attribute. If a list of multiple MutationMethod objects is defined,
+        then their 'prob' values need to add up to 1.0; if only a single MutationMethod
+        is used, then its 'prob' value need to be set to 1.0. Note that this
+        attribute is different from the 'prob' attribute of pymoo.core.mutation.Mutation,
+        which controls how often the mutation operator is called when generating
+        new individuals.
+
+        mutation_rate (float): a number between [0, 1] to specify the chance
+        a designable residue will be picked for redesign. How exactly this parameter
+        is used depends on the 'choose_pos_method'.
+
+        sigma (float, None): a number (in Angstrom) that controls the neighborhood
+        size in spatial neighborhood based 'choose_AA_method'. Cannot be None
+        if using such a 'choose_AA_method'.
+
+        protein_mpnn (wrapper.ProteinMPNNWrapper, None): a ProteinMPNN wrapper object.
+        Cannot be None if 'choose_AA_method' invokes ProteinMPNN.
+
+        esm_script_loc (str, None): path to the 'likelihood_esm.py' file in the 
+        pgen package. Cannot be None if the 'choose_pos_method' invokes an ESM model.
+
+        esm_model (str, None): name of an ESM model. See wrapper.ObjectiveESM for
+        more details. If None, use 'esm1v'.
         
+        esm_device (str, None): where to perform ESM calculations. Set to 'cpu' to 
+        force calculations on the CPUs, otherwise the argument has no effect. If
+        None, use 'cpu'.
+        '''
         self.choose_pos_method= choose_pos_method
         self.choose_AA_method= choose_AA_method
         self.prob= prob
@@ -47,6 +110,13 @@ class MutationMethod(object):
         return self.name
     
     def set_rng(self, rng):
+        '''
+        Set the RNG for the object. Can only be done once for each instance.
+
+        Input
+        -----
+        rng (np.random.Generator): a numpy random generator.
+        '''
         if hasattr(self, 'rng'):
             raise RuntimeError(
                 f'The numpy rng generator for MutationMethod {str(self)} is already set.'
@@ -55,6 +125,22 @@ class MutationMethod(object):
             self.rng= rng
     
     def choose_pos(self, candidate, protein, allowed_pos_list):
+        '''
+        Choose which positions in a candidate to redesign.
+
+        Input
+        -----
+        candidate (list[str]): a list of residues at the designable positions.
+
+        protein (protein.Protein): details of the protein system and design parameters.
+
+        allowed_pos_list (list[int]): the 0-indices of a subset of positions in
+        'candidate' from which to choose the design positions.
+
+        Output
+        -----
+        des_pos_list (list[int]): a subset of 'allowed_pos_list' chosen for redesign.
+        '''
         if self.choose_pos_method == 'random':
             return self._random_sampling(allowed_pos_list, self.mutation_rate)
         elif self.choose_pos_method == 'spatial_coupling':
@@ -99,6 +185,23 @@ class MutationMethod(object):
             raise ValueError('Unknown choose_pos_method')
     
     def choose_AA(self, candidate, protein, proposed_des_pos_list):
+        '''
+        Propose a new candidate by mutating the chosen design positions from a
+        candidate.
+
+        Input
+        -----
+        candidate (list[str]): a list of residues at the designable positions.
+
+        protein (protein.Protein): details of the protein system and design parameters.
+
+        proposed_des_pos_list (list[int]): output from choose_pos().
+
+        Output
+        -----
+        proposed_candidate (list[str]): a new candidate derived from 'candidate',
+        where residues at the 'proposed_des_pos_list' are redesigned.
+        '''
         if self.choose_AA_method == 'random':
             return self._random_resetting(candidate, protein, proposed_des_pos_list)
         elif self.choose_AA_method in ['ProteinMPNN-AD', 'ProteinMPNN-PD']:
@@ -112,9 +215,26 @@ class MutationMethod(object):
             raise ValueError('Unknown choose_AA_method')
 
     def apply(self, candidate, protein, allowed_pos_list= None):
+        '''
+        Main user interface for invoking the mutation operator. Calls choose_pos()
+        and choose_AA().
+
+        Input
+        -----
+        candidate (list[str]): a list of residues at the designable positions.
+
+        protein (protein.Protein): details of the protein system and design parameters.
+
+        allowed_pos_list (list[int], None): the 0-indices of a subset of positions in
+        'candidate' from which to choose the design positions. By default (None), 
+        all positions in 'candidate' will be available for redesign.
+
+        Output
+        -----
+        proposed_candidate (list[str]): a new candidate derived from 'candidate',
+        where residues at the 'allowed_pos_list' are redesigned.
+        '''
         if allowed_pos_list is None:
-            # allowed_pos_list is a list of indices of elements in the candidate array
-            # by default, allow all designable positions to be redesigned
             allowed_pos_list= np.arange(protein.design_seq.n_des_res)
         
         if len(allowed_pos_list) == 0:
@@ -129,6 +249,24 @@ class MutationMethod(object):
         )
 
     def _random_sampling(self, allowed_pos_list, mutation_rate):
+        '''
+        Randomly select a subset of designable positions for redesign. Each
+        position in 'allowed_pos_list' is considered for redesign with a probability 
+        controlled by 'mutation_rate'; if no position is chosen after this procedure, 
+        a random designable position is picked.
+
+        Input
+        -----
+        allowed_pos_list (list[int]): the 0-indices of a subset of positions
+        from which to choose the design positions.
+
+        mutation_rate (float): a number between [0, 1] that controls how likely
+        each position is to be selected for redesign.
+
+        Output
+        -----
+        des_pos_list (list[int]): a subset of 'allowed_pos_list' chosen for redesign.
+        '''
         des_pos_list= []
         for pos in allowed_pos_list:
             if self.rng.random() < mutation_rate:
@@ -165,9 +303,52 @@ class MutationMethod(object):
         sigma
     ):
         '''
-        hotspot_allowed_des_pos_ranked_list is a subset of allowed_pos_list, likely with a different ordering
-        this function is complicated because each allowed position may correspond to multiple physical residues, 
-        but we want to know the shortest possible distances between each pairs of allowed positions
+        Randomly select a spatially coupled subset of designable positions for
+        redesign.
+
+        Algorithm
+        -----
+        For a given 'chain_id' (in choose_pos(), this is chosen randomly from the
+        designable chains in 'protein'),a pairwise CA distance matrix is constructed 
+        for all designable positions found on the chain; if the chosen chain is 
+        adjacent to another chain that also contains designable positions, then 
+        only the minimal CA distance between each pair of tied positions sets is 
+        recorded. The distance matrix is passed through the Gaussian kernel/radial 
+        basis function with a bandwidth parameter sigma and converted into probabilities 
+        after normalization. Then, a "center" position is picked randomly among 
+        the designable positions on the chosen chain, and k neighboring positions 
+        (including the center) are chosen for redesign according to the probability 
+        matrix. k is either 1 or a random number drawn from a binomial distribution 
+        Bin(n, p), whichever is larger; here, n is the total number of designable 
+        positions, and p is equal to the parameter 'mutaiton_rate'.
+
+        This function is somewhat complicated because each allowed position may 
+        correspond to multiple physical residues, but we want to know the shortest 
+        possible distances between each pairs of allowed positions.
+
+        Input
+        -----
+        protein (protein.Protein): details of the protein system and design parameters.
+
+        chain_id (str): the chain from which to compute spatial coupling.
+
+        allowed_pos_list (list[int]): the 0-indices of a subset of positions
+        from which to choose the design positions.
+
+        hotspot_allowed_des_pos_ranked_list (list[int]): a subset of 'allowed_pos_list', 
+        likely with a different ordering. This is the list of "center" positions
+        described above. For each position in this list, its neighbors will be
+        selected for redesign, until the target number k is reached.
+        
+        mutation_rate (float): a number between [0, 1]; see the algorithm for
+        more details.
+
+        sigma (float): the sigma/standard deviation/bandwidth parameter for the 
+        Gaussian kernel/radial basis function described in the algorithm.
+
+        Output
+        -----
+        des_pos_list (list[int]): a subset of 'allowed_pos_list' chosen for redesign.
         '''
         CA_coords_df= {}
         neighbor_chain_ids= protein.chains_dict[chain_id].neighbors_list
@@ -322,6 +503,37 @@ class MutationMethod(object):
         protein, 
         allowed_pos_list
     ):
+        '''
+        Rank designable positions based on ESM (pseudo)likelihood scores with
+        masked language modeling.
+
+        Input
+        -----
+        objective_esm (wrapper.ObjectiveESM): a pgen wrapper for ESM scoring.
+        Note that when this method is called (indirectly) by choose_pos(), it is 
+        given an 'objective_esm' object generated by choose_pos().
+
+        candidate (list[str]): a list of residues at the designable positions.
+
+        protein (protein.Protein): details of the protein system and design parameters.
+
+        allowed_pos_list (list[int]): the 0-indices of a subset of positions in
+        'candidate' from which to choose the design positions.
+
+        Output
+        -----
+        chain_id (str): the chain whose sequence is scored by ESM. Note that this
+        comes from the objective_esm object.
+        
+        esm_scores_des_pos (list[float]): the ESM score at positions on the target
+        chain that correspond to poisitions in 'allowed_pos_list'. If a position
+        in 'allowed_pos_list' cannot be mapped onto the target chain, then a
+        np.nan is returned. If this method is called from choose_pos(), then
+        the ESM scores are not sign flipped.
+        
+        esm_des_pos_rank (list[int]): same as 'allowed_pos_list', but reordered
+        so that the worst positions according to ESM are placed first.
+        '''
         chain_id= objective_esm.chain_id
 
         esm_scores= np.squeeze(
@@ -374,6 +586,32 @@ class MutationMethod(object):
         allowed_pos_list, 
         mutation_rate
     ):
+        '''
+        Select a subset of designable positions based on ESM scores. The first k 
+        positions with the worst ESM scores are selected for redesign, where k 
+        is either 1 or a random number drawn from a binomial distribution Bin(n, p), 
+        whichever is larger; here, n is the total number of designable positions, 
+        and p is equal to the parameter 'mutaiton_rate'.
+
+        Input
+        -----
+        objective_esm (wrapper.ObjectiveESM): a pgen wrapper for ESM scoring.
+        Note that when this method is called by choose_pos(), it is given an 
+        'objective_esm' object generated by choose_pos().
+
+        candidate (list[str]): a list of residues at the designable positions.
+
+        protein (protein.Protein): details of the protein system and design parameters.
+
+        allowed_pos_list (list[int]): the 0-indices of a subset of positions in
+        'candidate' from which to choose the design positions.
+
+        mutation_rate (float): a number between [0, 1].
+
+        Output
+        -----
+        des_pos_list (list[int]): a subset of 'allowed_pos_list' chosen for redesign.
+        '''
         chain_id, esm_scores, esm_ranks= self._likelihood_esm_score_rank(
             objective_esm, 
             candidate, 
@@ -407,6 +645,13 @@ class MutationMethod(object):
         mutation_rate, 
         sigma
     ):
+        '''
+        Select a subset of designable positions based on ESM scores and spatial
+        coupling patterns. This is a combination of _likelihood_esm_score_rank()
+        and _spatially_coupled_sampling(): the 'esm_des_pos_rank' output from
+        the former is passed to the 'hotspot_allowed_des_pos_ranked_list' argument
+        of the latter. See the docstrings of these two methods for more details.
+        '''
         chain_id, esm_scores, esm_ranks= self._likelihood_esm_score_rank(
             objective_esm, 
             candidate, 
@@ -432,6 +677,26 @@ class MutationMethod(object):
         return des_pos_list
     
     def _random_resetting(self, candidate, protein, proposed_des_pos_list):
+        '''
+        Redesign a candidate by uniform sampling of allowed residue types. Note
+        that this is a somewhat nonstandard terminology; in the genetic algorithm
+        literature, a random resetting operator refers to the combined functionality
+        of _random_sampling() and _random_resetting().
+
+        Input
+        -----
+        candidate (list[str]): a list of residues at the designable positions.
+
+        protein (protein.Protein): details of the protein system and design parameters.
+
+        proposed_des_pos_list (list[int]): the 0-indices of a subset of positions in
+        'candidate' from which to perform sequence design.
+
+        Output
+        -----
+        new_candidate (list[str]): a new candidate that has been redesigned at
+        'proposed_des_post_list' positions.
+        '''
         new_candidate= np.copy(candidate)
         for des_pos in proposed_des_pos_list:
             alphabet= list(protein.design_seq.tied_residues[des_pos].allowed_AA)
@@ -451,6 +716,31 @@ class MutationMethod(object):
         return new_candidate
 
     def _protein_mpnn(self, protein_mpnn, method, candidate, proposed_des_pos_list):
+        '''
+        Redesign a candidate using ProteinMPNN.
+
+        Input
+        -----
+        protein_mpnn (wrapper.ProteinMPNNWrapper, None): a ProteinMPNN wrapper object.
+
+        method (str): how to perform multistate design: 'ProteinMPNN-AD' to perform
+        average decoding for each tied positions, or 'ProteinMPNN-PD' to perform uniform
+        sampling conditioned on the Pareto front at each tied position. 'ProteinMPNN-AD'
+        is the method described in the original ProteinMPNN paper, and should be used
+        for single-state designs.
+
+        candidate (list[str]): a list of residues at the designable positions.
+
+        protein (protein.Protein): details of the protein system and design parameters.
+
+        proposed_des_pos_list (list[int]): the 0-indices of a subset of positions in
+        'candidate' from which to perform sequence design.
+
+        Output
+        -----
+        new_candidate (list[str]): a new candidate that has been redesigned at
+        'proposed_des_post_list' positions.
+        '''
         protein_mpnn_seed= self.rng.integers(1000000000)
         new_candidate= np.squeeze(
             protein_mpnn.design_and_decode_to_candidates(
@@ -477,6 +767,9 @@ class MutationMethod(object):
         return new_candidate
 
     def _random_chain_picker(self, protein):
+        '''
+        Randomly pick a designable chain ID from a protein object.
+        '''
         assert hasattr(self, 'rng'), f'{self} has no rng attr'
         # only draw from the set of designable chains
         new_chain= self.rng.choice(list(protein.design_seq.chains_to_design))
@@ -486,6 +779,15 @@ class MutationMethod(object):
         return new_chain
 
 class ProteinMutation(Mutation):
+    '''
+    A subclass of pymoo.core.mutation.Mutation and should be used in in place of
+    existing mutation operators implemented in pymoo.operators.mutation. The
+    purpose of this class is three-fold: 1) taking in MutationMethod objects and
+    packaging them into a mutation operator for pymoo, 2) implementing custom
+    parallelization methods with mpi4py or a job scheduler, and 3) precisely 
+    controlling the random number generators of the mutation operators based on the
+    parallelization scheme.
+    '''
     def __init__(
         self, 
         method_list, 
