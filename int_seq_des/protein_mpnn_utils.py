@@ -13,7 +13,6 @@ import torch.nn.functional as F
 import random
 import itertools
 
-# L.H.
 from scipy.cluster.hierarchy import linkage, fcluster
 from scipy.spatial.distance import squareform
 

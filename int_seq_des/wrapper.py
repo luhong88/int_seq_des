@@ -3,11 +3,11 @@ import textwrap, os, io, sys, subprocess, tempfile, time
 import numpy as np, pandas as pd
 from Bio import SeqIO
 
-from int_seq_des.af2rank import af2rank
-from int_seq_des.protein import (
+from af2rank import af2rank
+from protein import (
     DesignedProtein, SingleStateProtein, Residue, TiedResidue
 )
-from int_seq_des.utils import (
+from utils import (
     sort_order, npz_to_dict, get_logger, sep, Device
 )
 
