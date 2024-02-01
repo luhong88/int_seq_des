@@ -276,7 +276,6 @@ def run_nsga(
 
     design_problem= MultistateSeqDesignProblem(
         protein, 
-        protein_mpnn, 
         metrics_list,
         pkg_dir,
         comm, 

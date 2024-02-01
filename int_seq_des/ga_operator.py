@@ -1,4 +1,4 @@
-import textwrap, sys, multiprocessing, itertools
+import textwrap, sys, os, multiprocessing, itertools
 from copy import deepcopy
 
 import numpy as np, pandas as pd
@@ -22,6 +22,8 @@ from int_seq_des.utils import (
 
 logger= get_logger(__name__)
 
+path_to_script_folder= os.path.dirname(os.path.realpath(__file__))
+
 class MutationMethod(object):
     '''
     A "factory" class for constructing custom mutation operators. This class
@@ -34,6 +36,9 @@ class MutationMethod(object):
     the primary user interface is provided by the apply() method, which calls
     the choose_pos() method to pick design positions, and then the choose_AA()
     method to generate design candidates.
+
+    Note that objects of this class need to be passed to ProteinMutation to
+    form a pymoo mutation operator.
     '''
     # all private methods are written to handle a single candidate at each call
     def __init__(
@@ -780,19 +785,22 @@ class MutationMethod(object):
 
 class ProteinMutation(Mutation):
     '''
-    A subclass of pymoo.core.mutation.Mutation and should be used in in place of
+    A subclass of pymoo.core.mutation.Mutation and should be used in place of
     existing mutation operators implemented in pymoo.operators.mutation. The
     purpose of this class is three-fold: 1) taking in MutationMethod objects and
     packaging them into a mutation operator for pymoo, 2) implementing custom
     parallelization methods with mpi4py or a job scheduler, and 3) precisely 
     controlling the random number generators of the mutation operators based on the
     parallelization scheme.
+
+    Because of different RNG schemes, jobs run without parallelization, or with
+    different parallelization methods, will not be reproducible.
     '''
     def __init__(
         self, 
         method_list, 
         root_seed, 
-        pkg_dir, 
+        pkg_dir= path_to_script_folder, 
         pop_size= None, 
         comm= None, 
         cluster_parallelization= False, 
@@ -800,6 +808,38 @@ class ProteinMutation(Mutation):
         cluster_mem_free_str= None, 
         **kwargs
     ):
+        '''
+        Input
+        -----
+        method_list ([MutationMethod]): a list of MutationMethod objects. Note
+        that their 'prob' attributes must add up to 1.
+
+        root_seed (int): an integer used to set the random seed.
+
+        pkg_dir (str): absolute path of the parent directory of this script.
+
+        pop_size (int, None): genetic algorithm population size.
+
+        comm (mpi4py.MPI.Comm, None): a mpi4py communicator object (e.g., 
+        mpi4py.MPI.COMM_WORLD). Set to None (default) to disable parallelization 
+        with mpi4py.
+
+        cluster_parallelization (bool): whether to parallelize calculations for each
+        candidate as a job on a compute cluster. If this is set to True, the comm 
+        argument is ignored. Set to False by default.
+
+        cluster_time_limit_str (str): how much time to be allowed for each job on
+        the compute cluster. Required for cluster parallelization, but by default 
+        set to None. The str should be formatted in a way that can be parsed by the
+        SGE job scheduler.
+
+        cluster_mem_free_str (str): how much memory to be allocated for each job
+        on the computer cluster. Required for cluster parallelization, but by default 
+        set to None. The str should be formatted in a way that can be parsed by the
+        SGE job scheduler.
+
+        **kwargs: additional arguments passed to the pymoo Mutation class constructor.
+        '''
         super().__init__(prob=1.0, prob_var=None, **kwargs)
         self.uninitialized_method_list= method_list
         self.root_seed= root_seed
@@ -813,6 +853,21 @@ class ProteinMutation(Mutation):
         self.call_counter= 0 # increment this counter each time the method _do() is called; for setting RNG.
 
     def _do(self, problem, candidates, **kwargs):
+        '''
+        Apply mutation operators to a list of candidates.
+
+        Input
+        -----
+        problem (MultistateSeqDesignProblem): an object describing the multistate
+        sequence design problem.
+
+        candidates (list(list[str])): a list of candidates to be mutated; a list 
+        of residues at the designable positions.
+
+        Output
+        -----
+        Xp (list(list[str])): a list of mutated candidates.
+        '''
         logger.debug(
             textwrap.dedent(
                 f'''\
@@ -831,6 +886,7 @@ class ProteinMutation(Mutation):
                 size= 1
             else:
                 size= self.comm.Get_size()
+        # every process sets its own RNG
         self.rng_list= [
             np.random.default_rng(
                 [
@@ -842,6 +898,8 @@ class ProteinMutation(Mutation):
             ) for rank in range(size)
         ]
 
+        # for each process, create its own copy of the list of MutationMethod
+        # and then set their RNGs.
         method_list_rng_list= []
         for rank in range(size):
             method_list_rng= deepcopy(self.uninitialized_method_list)
@@ -861,7 +919,7 @@ class ProteinMutation(Mutation):
         method_list= method_list_rng_list
         self.call_counter+= 1
 
-
+        # apply mutation operators over a job scheduler
         if self.cluster_parallelization:
             jobs= []
             result_queue= multiprocessing.Queue()
@@ -920,6 +978,7 @@ class ProteinMutation(Mutation):
         else:
             Xp= []
 
+            # apply mutation operators in serial
             if self.comm is None:
                 rank= 0
                 for candidate in candidates:
@@ -943,6 +1002,7 @@ class ProteinMutation(Mutation):
                     )
                 return np.asarray(Xp)
             
+            # apply mutation operators over MPI
             else:
                 rank= self.comm.Get_rank()
                 size= self.comm.Get_size()
@@ -984,7 +1044,24 @@ class ProteinMutation(Mutation):
             return Xp
 
 class ProteinSampling(Sampling):
+    '''
+    A subclass of pymoo.core.sampling.Sampling, useful for initializing a
+    genetic algorithm population, by applying a random resetting operator to
+    the WT/parental sequence.
+    '''
     def __init__(self, mutation_rate, root_seed, comm= None):
+        '''
+        mutation_rate (float): a number between [0, 1] that sets the mutation rate
+        of the random resetting MutationMethod. Note that a mutation_rate of 1.0
+        will completely randomize the designable sequences.
+
+        root_seed (int): an integer used to set the random seed.
+
+        comm (mpi4py.MPI.Comm, None): a mpi4py communicator object (e.g., 
+        mpi4py.MPI.COMM_WORLD). Set to None (default) to disable parallelization 
+        with mpi4py. Since the random resetting operator is a computationally cheap
+        operation, only one process will be invoked, even if using mpi4py.
+        '''
         super().__init__()
 
         self.mutation_rate= mutation_rate
@@ -994,6 +1071,21 @@ class ProteinSampling(Sampling):
         self.rng= np.random.default_rng([self.class_seed, root_seed])
 
     def _do(self, problem, n_samples, **kwargs):
+        '''
+        Perform random resetting to generate a population of randomized sequences.
+
+        Input
+        -----
+        problem (MultistateSeqDesignProblem): an object describing the multistate
+        sequence design problem.
+
+        n_samples (int): population size.
+
+        Output
+        -----
+        proposed_candidates (list[list[str]]): a list of randomized sequences
+        in the form of design candidates.
+        '''
         # use only one process to generate the initial candidates
         if problem.comm == None:
             method= MutationMethod(
@@ -1060,12 +1152,17 @@ class ProteinSampling(Sampling):
             return proposed_candidates
 
 class MultistateSeqDesignProblem(Problem):
+    '''
+    A sublcass of pymoo.core.problem.Problem that describes the multistate
+    sequence design problem. It contains a protein.Protein object, a list of
+    metrics/objective functions, and an _evaluate() method to evaluate a list
+    of candidates based on this information.
+    '''
     def __init__(
             self, 
             protein, 
-            protein_mpnn_wrapper, 
             metrics_list,
-            pkg_dir,
+            pkg_dir= path_to_script_folder,
             comm= None, 
             cluster_parallelization= False, 
             cluster_parallelize_metrics= False,
@@ -1073,8 +1170,41 @@ class MultistateSeqDesignProblem(Problem):
             cluster_mem_free_str= None, 
             **kwargs
         ):
+        '''
+        Input
+        -----
+        protein (protein.Protein): details of the protein system and design parameters.
+
+        metrics_list (list): a list of metric objects/objective functions against
+        which the designed sequences will be scored.
+
+        pkg_dir (str): absolute path of the parent directory of this script.
+
+        comm (mpi4py.MPI.Comm, None): a mpi4py communicator object (e.g., 
+        mpi4py.MPI.COMM_WORLD). Set to None (default) to disable parallelization 
+        with mpi4py.
+
+        cluster_parallelization (bool): whether to parallelize calculations for each
+        candidate as a job on a compute cluster. If this is set to True, the comm 
+        argument is ignored. Set to False by default.
+
+        cluster_parallelize_metrics (bool): whether to split the calculation of each
+        metric for a candidate as separate jobs on a compute cluster. False by default.
+
+        cluster_time_limit_str (str): how much time to be allowed for each job on
+        the compute cluster. Required for cluster parallelization, but by default 
+        set to None. The str should be formatted in a way that can be parsed by the
+        SGE job scheduler.
+
+        cluster_mem_free_str (str): how much memory to be allocated for each job
+        on the computer cluster. Required for cluster parallelization, but by default 
+        set to None. The str should be formatted in a way that can be parsed by the
+        SGE job scheduler.
+
+        **kwargs: additional arguments passed to the pymoo Problem class constructor.
+        '''
         self.protein= protein
-        self.protein_mpnn= protein_mpnn_wrapper
+        #self.protein_mpnn= protein_mpnn_wrapper
         self.metrics_list= metrics_list
         self.pkg_dir= pkg_dir
         self.comm= comm
@@ -1093,6 +1223,11 @@ class MultistateSeqDesignProblem(Problem):
         )
 
     def _evaluate(self, candidates, out, *args, **kwargs):
+        '''
+        Calculate the objective function scores for a list of candidates, and
+        then score the results in the 'out' dictionary object used by pymoo
+        to store information of population states.
+        '''
         scores= evaluate_candidates(
             self.metrics_list,
             candidates,
