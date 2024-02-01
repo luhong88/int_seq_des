@@ -49,8 +49,11 @@ def npz_to_dict(npz_obj):
     new_dict= {k: npz_obj[k] for k in keys}
     return new_dict
 
-# a way to foce cpu computation
 class Device(object):
+    '''
+    A context manager class for controlling GPU visibility. Currently work as a
+    way to force CPU computation.
+    '''
     def __init__(self, device):
         self.device= device
     def __enter__(self):
@@ -72,6 +75,9 @@ class Device(object):
             del os.environ['XLA_FLAGS']
 
 class NativeSeqRecovery(object):
+    '''
+    A metric/objective function class that computes native sequence recovery.
+    '''
     def __init__(self):
         self.name= 'identity'
     
@@ -86,8 +92,9 @@ class NativeSeqRecovery(object):
 
 def _equidistant_points(n_pts, mol_radius, min_dist):
     '''
-    Create a list of equidistant points on a circle in the xy-plane
-    The minimum distance between spheres of radius mol_radius centered at these points is 2*mol_radius+min_dist
+    Create a list of 'n_pts' equidistant points on a circle in the xy-plane. The 
+    minimum distance between spheres of radius 'mol_radius' centered at these points is 
+    2*mol_radius + min_dist.
     '''
     if n_pts > 1:
         theta= 2*np.pi/n_pts
@@ -103,6 +110,10 @@ def _equidistant_points(n_pts, mol_radius, min_dist):
         return np.array([[0., 0., 0.]])
 
 def _lattice_points(n_pts, mol_radius, min_dist):
+    '''
+    Create a cubic lattice grid for 'n_pts' such that the length of the unit 
+    cell is 2*mol_radius + min_dist.
+    '''
     unit_len= 2*mol_radius + min_dist
     lattice_dim= int(np.ceil(np.cbrt(n_pts)))
     grid= np.mgrid[:1:lattice_dim*1j, :1:lattice_dim*1j, :1:lattice_dim*1j].reshape(3, -1).T
@@ -112,60 +123,75 @@ def _lattice_points(n_pts, mol_radius, min_dist):
     return lattice_subset_centered
 
 def merge_pdb_files(input_files, output_file, min_dist= 24):
-        '''
-        min_dist in Angstrom
-        '''
-        parser = PDBParser(QUIET= True)
+    '''
+    Merge a set of PDB structures into a single one. If there are four or fewer
+    input PDB files, then use the _equidistant_points() function to set the
+    centroid locations for each PDB structure, otherwise use the _equidistant_points()
+    function. All distance units in Angstrom.
 
-        structures= [parser.get_structure(file, file) for file in input_files]
+    Input
+    -----
+    input_files ([list[str]]): a list of paths to the input PDB files.
 
-        CA_coords_list= []
-        for structure in structures:
-            if len(structure) > 1:
-                logger.warning(
-                    f'More than one models detected in {structure.id}; only the first model will be read and used!'
-                )
-            CA_coords= []
-            for chain in structure[0]:
-                for residue in chain:
-                        try:
-                            CA_coords.append(residue['CA'].get_coord())
-                        except KeyError:
-                            pass
-            CA_coords_list.append(np.asarray(CA_coords))
-        
-        old_COM_list= [np.mean(CA_coords, axis= 0) for CA_coords in CA_coords_list]
-        mol_radius_list= [
-            np.max(np.linalg.norm(CA_coords - COM, axis= 1))
-            for CA_coords, COM in zip(CA_coords_list, old_COM_list)
-        ]
-        if len(structures) <= 4:
-            new_COM_list= _equidistant_points(
-                len(structures), np.max(mol_radius_list), min_dist
+    output_file (str): path to an output combined PDB file.
+
+    min_dist (float): min_dist argument for _equidistant_points() and _equidistant_points().
+    '''
+    parser = PDBParser(QUIET= True)
+
+    structures= [parser.get_structure(file, file) for file in input_files]
+
+    CA_coords_list= []
+    for structure in structures:
+        if len(structure) > 1:
+            logger.warning(
+                f'More than one models detected in {structure.id}; only the first model will be read and used!'
             )
-        else:
-            new_COM_list= _lattice_points(
-                len(structures), np.max(mol_radius_list), min_dist
-            )
-        
-        for structure, old_COM, new_COM in zip(structures, old_COM_list, new_COM_list):
+        CA_coords= []
+        for chain in structure[0]:
+            for residue in chain:
+                    try:
+                        CA_coords.append(residue['CA'].get_coord())
+                    except KeyError:
+                        pass
+        CA_coords_list.append(np.asarray(CA_coords))
+    
+    old_COM_list= [np.mean(CA_coords, axis= 0) for CA_coords in CA_coords_list]
+    mol_radius_list= [
+        np.max(np.linalg.norm(CA_coords - COM, axis= 1))
+        for CA_coords, COM in zip(CA_coords_list, old_COM_list)
+    ]
+    if len(structures) <= 4:
+        new_COM_list= _equidistant_points(
+            len(structures), np.max(mol_radius_list), min_dist
+        )
+    else:
+        new_COM_list= _lattice_points(
+            len(structures), np.max(mol_radius_list), min_dist
+        )
+    
+    for structure, old_COM, new_COM in zip(structures, old_COM_list, new_COM_list):
+        for chain in structure[0]:
+            for residue in chain:
+                for atom in residue:
+                    atom.transform(np.eye(3), new_COM - old_COM)
+    
+    merged_structure= structures[0].copy()
+    if len(structures) > 1:
+        for structure in structures[1:]:
             for chain in structure[0]:
-                for residue in chain:
-                    for atom in residue:
-                        atom.transform(np.eye(3), new_COM - old_COM)
-        
-        merged_structure= structures[0].copy()
-        if len(structures) > 1:
-            for structure in structures[1:]:
-                for chain in structure[0]:
-                    merged_structure[0].add(chain)
-        
-        # Write the merged structure to the output file
-        pdb_io= PDBIO()
-        pdb_io.set_structure(merged_structure)
-        pdb_io.save(output_file)
+                merged_structure[0].add(chain)
+    
+    # Write the merged structure to the output file
+    pdb_io= PDBIO()
+    pdb_io.set_structure(merged_structure)
+    pdb_io.save(output_file)
 
 def get_array_chunk(arr, rank, size):
+    '''
+    Split an array 'arr' into chunks of size 'size' and then get the chunk indexed
+    by 'rank'.
+    '''
     chunk_size= len(arr)/size
     if not chunk_size.is_integer():
         raise ValueError(
@@ -184,11 +210,25 @@ def sge_write_submit_script(
     python_str
 ):
     '''
-    submit a job that requires a single core
-    use the -c tag to execute a string through the python interpreter
+    Write an SGE job submission script that requests a single core and executes
+    a python command. This function needs to be customized based on the specifics
+    of the computing environment.
+
+    Input
+    -----
+    sge_script_loc (str): a path for the output job submission script.
+    
+    job_name (str): name for the SGE job.
+
+    time_limit_str (str): SGE job time limit.
+
+    mem_free_str (str): SGE job memory limit.
+
+    python_str (str): a string of python code to be executed.
     '''
     job_name= job_name[:100] # truncate long job names
     
+    # use the -c tag to execute a string through the python interpreter
     submit_str= textwrap.dedent(
         f'''\
         #!/bin/bash
@@ -216,7 +256,15 @@ def sge_write_submit_script(
 
 def sge_submit_job(sge_script_loc):
     '''
-    keep trying to submit the job until it is accepted by the job scheduler
+    Submit an SGE job script and get the job ID.
+    
+    Input
+    -----
+    sge_script_loc (str): a path to an SGE job.
+
+    Output
+    -----
+    job_id (int): the id of the submitted SGE job.
     '''
     current_time= datetime.now()
     rng= np.random.default_rng(
@@ -233,6 +281,7 @@ def sge_submit_job(sge_script_loc):
     time_limit= 60*60 # 1 h
     start_time= time.time()
     
+    # keep trying to submit the job until it is accepted by the job scheduler
     while time.time() - start_time < time_limit:
         try:
             time.sleep(rng.integers(10, 60))
@@ -247,6 +296,22 @@ def sge_submit_job(sge_script_loc):
     return job_id
 
 def cluster_manage_job(sge_script_loc, out_file, cluster_time_limit_str):
+    '''
+    Submit an SGE job script, monitor the status of the job, and return the job
+    outputs if/when it finishes successfully.
+
+    Input
+    -----
+    sge_script_loc (str): path to the SGE job script.
+
+    out_file (str): path to the expected pickle output file.
+
+    cluster_time_limit_str (str): SGE job time limit.
+
+    Output
+    -----
+    results: output from the SGE job.
+    '''
     current_time= datetime.now()
     rng= np.random.default_rng(
         [
@@ -259,7 +324,7 @@ def cluster_manage_job(sge_script_loc, out_file, cluster_time_limit_str):
         ]
     )
 
-    try_limit= 10
+    try_limit= 10 # how many times to try to (re)submit the job before giving up
     job_id= sge_submit_job(sge_script_loc)
     num_tries= 1
     
@@ -267,6 +332,7 @@ def cluster_manage_job(sge_script_loc, out_file, cluster_time_limit_str):
 
     pt= datetime.strptime(cluster_time_limit_str, '%H:%M:%S')
     total_seconds= pt.second + pt.minute*60 + pt.hour*3600
+    # how long to wait before giving up, this includes the job queueing time
     # this number can be adjusted to account for the business of the job queue
     time_limit= 2*total_seconds 
     
@@ -322,8 +388,45 @@ def cluster_act_single_candidate(
     cluster_mem_free_str, 
     pkg_dir, 
     candidate_ind= None, 
-    result_queue= None
+    result_queue= None,
+    temp_dir= None
 ):
+    '''
+    Score/mutate a candidate in an SGE job.
+
+    Input
+    -----
+    actions_list (list): a list of "actions" to be performed on 'candidate',
+    could be a metric/objective function, or a mutation operator.
+
+    candidate (list[str]): a list of residues at the designable positions.
+
+    protein (protein.Protein): details of the protein system and design parameters.
+
+    cluster_time_limit_str (str): how much time to be allowed for the job on
+    the compute cluster.
+
+    cluster_mem_free_str (str): how much memory to be allocated for the job
+    on the computer cluster.
+
+    pkg_dir (str): absolute path of the parent directory of this script.
+
+    candidate_ind (int, None): an index associated with the 'candidate'; cannot
+    be None if 'result_queue' is not None.
+
+    result_queue (multiprocessing.Queue, None): a multiprocessing queue for storing
+    the SGE job output; relevant when SGE job submissions are managed using python
+    multiprocessing.
+
+    temp_dir (str, None): path to the folder in which to create a temporary directory
+    to store the SGE calculation results. If None, then use the default system setting.
+
+    Output
+    -----
+    If 'result_queue' is not None, then the function stores a tuple of 'candidate_ind'
+    and the SGE job outputs in the 'result_queue'; otherwise, the function returns
+    the SGE job outputs.
+    '''
     logger.debug(
         f'cluster_act_single_candidate() get the candidate {candidate} from the full candidates set'
     )
@@ -334,7 +437,10 @@ def cluster_act_single_candidate(
     try:
         results= []
         for action in actions_list:
-            job_dir= tempfile.TemporaryDirectory(dir= '/wynton/scratch/')
+            if temp_dir is not None:
+                job_dir= tempfile.TemporaryDirectory(dir= temp_dir)
+            else:
+                job_dir= tempfile.TemporaryDirectory()
             out_file= f'score.p'
             sge_script_file= 'submit.sh'
 
@@ -403,6 +509,48 @@ def evaluate_candidates(
     cluster_time_limit_str= None, 
     cluster_mem_free_str= None
 ):
+    '''
+    Evaluate a list of candidates using a list of metrics/objective functions.
+
+    This function operates similarly to ga_operator.ProteinMutation._do().
+
+    Input
+    -----
+    metrics_list (list): a list of metrics/objective functions.
+
+    candidates (list[list[str]]): a list of candidates; a list of residues at the 
+    designable positions.
+
+    protein (protein.Protein): details of the protein system and design parameters.
+
+    pkg_dir (str): absolute path of the parent directory of this script.
+
+    comm (mpi4py.MPI.Comm, None): a mpi4py communicator object (e.g., 
+    mpi4py.MPI.COMM_WORLD). Set to None (default) to disable parallelization 
+    with mpi4py.
+
+    cluster_parallelization (bool): whether to parallelize calculations for each
+    candidate as a job on a compute cluster. If this is set to True, the comm 
+    argument is ignored. Set to False by default.
+
+    cluster_parallelize_metrics (bool): whether to split the calculation of each
+    metric for a candidate as separate jobs on a compute cluster. False by default.
+
+    cluster_time_limit_str (str): how much time to be allowed for each job on
+    the compute cluster. Required for cluster parallelization, but by default 
+    set to None. The str should be formatted in a way that can be parsed by the
+    SGE job scheduler.
+
+    cluster_mem_free_str (str): how much memory to be allocated for each job
+    on the computer cluster. Required for cluster parallelization, but by default 
+    set to None. The str should be formatted in a way that can be parsed by the
+    SGE job scheduler.
+
+    Output
+    -----
+    scores (np.ndarray[float]): a (N, M) array of score outputs; N is the number
+    of candidates, and M is the number of metrics/objective functions.
+    '''
     if cluster_parallelization == True:
         if comm is not None:
             logger.info(
@@ -416,7 +564,8 @@ def evaluate_candidates(
         for candidate_ind, candidate in enumerate(candidates):
             if cluster_parallelize_metrics:
                 for metric_ind, metric in enumerate(metrics_list):
-                    # need to put candidate in [] because all the metrics are designed to take in a list of candidates
+                    # need to put candidate in [] because all the metrics are designed 
+                    # to take in a list of candidates
                     proc= multiprocessing.Process(
                         target= cluster_act_single_candidate, 
                         args= (
@@ -520,6 +669,15 @@ def evaluate_candidates(
         return scores
 
 class SavePop(Callback):
+    '''
+    A subclass of pymoo.core.callback.Callback. The purpose of this class is to
+    record the genetic algorithm simulation trajectory and store it in the final
+    algorithm output. It takes the population from each iteration of the genetic 
+    algorithm, and packages the candidates and objective function scores in a 
+    pd.Dataframe, which is then appended to self.data['pop']. This class is
+    provided as an argument to pymoo.optimize.minimize() and the stored data
+    is available in the minimize() output.
+    '''
     def __init__(
         self, 
         protein, 
@@ -581,6 +739,12 @@ class SavePop(Callback):
         )
 
 class DumpPop(Callback):
+    '''
+    A subclass of pymoo.core.callback.Callback. It functions similarly to the
+    SavePop class, but instead of saving intermediate results to the final
+    output of pymoo.optimize.minimize(), it dumps the intermediate results to
+    a pickle file at the end of each iteration.
+    '''
     def __init__(
         self, 
         protein, 
@@ -649,15 +813,37 @@ class DumpPop(Callback):
             )
 
 class LoadPop(Sampling):
+    '''
+    A subclass of pymoo.core.sampling.Sampling, useful for initializing a
+    genetic algorithm population, by reading in an existing population.
+
+    See also ga_operator.ProteinSampling.
+    '''
     def __init__(self, pickle_file_loc):
+        '''
+        Input
+        -----
+        pickle_file_loc (str): path to a pickle file containing the initial population.
+        '''
         super().__init__()
 
         self.pickle_file_loc= pickle_file_loc
 
     def _do(self, problem, n_samples, **kwargs):
+        '''
+        Read in the content of 'self.pickle_file_loc'. The pickle file should 
+        contain either a pd.DataFrame or a list thereof, and the DataFrame should 
+        have a 'candidate' column; if a list of DataFrames is provided, only the 
+        last element of the list will be read.
+
+        Output
+        -----
+        proposed_candidates (list[list[str]]): a list of candidates.
+        '''
         existing_pop= pickle.load(open(self.pickle_file_loc, 'rb'))
         if isinstance(existing_pop, list):
-            # if the pickle file is a list, assume that the last element is a df containing the final population
+            # if the pickle file is a list, assume that the last element is a df 
+            # containing the final population
             proposed_candidates= np.array(
                 [list(candidate) for candidate in existing_pop[-1]['candidate']]
             )

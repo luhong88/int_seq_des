@@ -856,6 +856,8 @@ class ProteinMutation(Mutation):
         '''
         Apply mutation operators to a list of candidates.
 
+        This method operates similarly to utils.evaluate_candidates()
+
         Input
         -----
         problem (MultistateSeqDesignProblem): an object describing the multistate
@@ -1048,6 +1050,8 @@ class ProteinSampling(Sampling):
     A subclass of pymoo.core.sampling.Sampling, useful for initializing a
     genetic algorithm population, by applying a random resetting operator to
     the WT/parental sequence.
+
+    See also utils.LoadPop.
     '''
     def __init__(self, mutation_rate, root_seed, comm= None):
         '''
