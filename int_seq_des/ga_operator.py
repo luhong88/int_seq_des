@@ -90,7 +90,7 @@ class MutationMethod(object):
         Cannot be None if 'choose_AA_method' invokes ProteinMPNN.
 
         esm_script_loc (str, None): path to the 'likelihood_esm.py' file in the 
-        pgen package. Cannot be None if the 'choose_pos_method' invokes an ESM model.
+        pgen package. If None, will attempt to search for the module.
 
         esm_model (str, None): name of an ESM model. See wrapper.ObjectiveESM for
         more details. If None, use 'esm1v'.

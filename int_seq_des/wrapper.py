@@ -1,4 +1,4 @@
-import textwrap, os, io, sys, subprocess, tempfile, time
+import textwrap, os, io, sys, subprocess, tempfile, time, importlib.util
 
 import numpy as np, pandas as pd
 from Bio import SeqIO
@@ -183,7 +183,7 @@ class ObjectiveESM(object):
     def __init__(
         self, 
         chain_id, 
-        script_loc, 
+        script_loc= None, 
         model_name= 'esm1v', 
         device= 'cpu', 
         sign_flip= True
@@ -193,7 +193,8 @@ class ObjectiveESM(object):
         -----
         chain_id (str): the ID for the chain to be scored.
 
-        script_loc (str): path to the 'likelihood_esm.py' file in the pgen package.
+        script_loc (str, None): path to the 'likelihood_esm.py' file in the 'pgen'
+        package. If None, will attempt to search for the module.
 
         model_name (str): name of an ESM model; accepted values are 'esm1b',
         'esm6', 'esm12', 'esm34', and 'esm1v' (default).
@@ -209,6 +210,18 @@ class ObjectiveESM(object):
         self.device= device
         self.sign_flip= sign_flip
         self.name= ('neg_' if sign_flip else '') + f'{model_name}_chain_{chain_id}'
+
+        # check for pgen script location
+        if script_loc is None:
+            pgen_spec= importlib.util.find_spec('pgen')
+            if pgen_spec is None:
+                raise ValueError('The "pgen" module path cannot be inferred.')
+            else:
+                pgen_folder_path= pgen_spec.submodule_search_locations
+                assert len(pgen_folder_path) == 1, 'More than one "pgen" module paths found.'
+                script_loc= pgen_folder_path[0] + '/likelihood_esm.py'
+
+        assert os.path.isfile(script_loc)
 
         # input and output both handled through io streams
         self.exec= [
