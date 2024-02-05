@@ -806,6 +806,7 @@ class ProteinMutation(Mutation):
         cluster_parallelization= False, 
         cluster_time_limit_str= None, 
         cluster_mem_free_str= None, 
+        temp_dir= None,
         **kwargs
     ):
         '''
@@ -838,6 +839,10 @@ class ProteinMutation(Mutation):
         set to None. The str should be formatted in a way that can be parsed by the
         SGE job scheduler.
 
+        temp_dir (str, None): path to the folder in which to create a temporary 
+        directory to store the SGE calculation results. If None, then use the 
+        default system setting.
+
         **kwargs: additional arguments passed to the pymoo Mutation class constructor.
         '''
         super().__init__(prob=1.0, prob_var=None, **kwargs)
@@ -849,6 +854,7 @@ class ProteinMutation(Mutation):
         self.cluster_parallelization= cluster_parallelization
         self.cluster_time_limit_str= cluster_time_limit_str
         self.cluster_mem_free_str= cluster_mem_free_str
+        self.temp_dir= temp_dir
         self.class_seed= class_seeds[self.__class__.__name__]
         self.call_counter= 0 # increment this counter each time the method _do() is called; for setting RNG.
 
@@ -942,7 +948,8 @@ class ProteinMutation(Mutation):
                         self.cluster_mem_free_str, 
                         self.pkg_dir, 
                         candidate_ind, 
-                        result_queue
+                        result_queue,
+                        self.temp_dir
                     )
                 )
                 jobs.append(proc)
@@ -1172,6 +1179,7 @@ class MultistateSeqDesignProblem(Problem):
             cluster_parallelize_metrics= False,
             cluster_time_limit_str= None, 
             cluster_mem_free_str= None, 
+            temp_dir= None,
             **kwargs
         ):
         '''
@@ -1205,6 +1213,10 @@ class MultistateSeqDesignProblem(Problem):
         set to None. The str should be formatted in a way that can be parsed by the
         SGE job scheduler.
 
+        temp_dir (str, None): path to the folder in which to create a temporary 
+        directory to store the cluster calculation results. If None, then use 
+        the default system setting.
+
         **kwargs: additional arguments passed to the pymoo Problem class constructor.
         '''
         self.protein= protein
@@ -1216,6 +1228,7 @@ class MultistateSeqDesignProblem(Problem):
         self.cluster_parallelize_metrics= cluster_parallelize_metrics
         self.cluster_time_limit_str= cluster_time_limit_str
         self.cluster_mem_free_str= cluster_mem_free_str
+        self.temp_dir= temp_dir
 
         super().__init__(
             n_var= protein.design_seq.n_des_res, 
@@ -1241,6 +1254,7 @@ class MultistateSeqDesignProblem(Problem):
             cluster_parallelization= self.cluster_parallelization,
             cluster_parallelize_metrics= self.cluster_parallelize_metrics,
             cluster_time_limit_str= self.cluster_time_limit_str, 
-            cluster_mem_free_str= self.cluster_mem_free_str
+            cluster_mem_free_str= self.cluster_mem_free_str,
+            temp_dir= self.temp_dir
         )
         out['F']= scores

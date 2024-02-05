@@ -380,6 +380,7 @@ def cluster_manage_job(sge_script_loc, out_file, cluster_time_limit_str):
     results= pickle.load(open(out_file, 'rb'))
     return results
 
+# TODO: expose temp_dir to the user interface; SGE may have trouble submitting jobs from the system-wide tmp folder.
 def cluster_act_single_candidate(
     actions_list, 
     candidate, 
@@ -419,7 +420,7 @@ def cluster_act_single_candidate(
     multiprocessing.
 
     temp_dir (str, None): path to the folder in which to create a temporary directory
-    to store the SGE calculation results. If None, then use the default system setting.
+    to store the cluster calculation results. If None, then use the default system setting.
 
     Output
     -----
@@ -507,7 +508,8 @@ def evaluate_candidates(
     cluster_parallelization= False,
     cluster_parallelize_metrics= False,
     cluster_time_limit_str= None, 
-    cluster_mem_free_str= None
+    cluster_mem_free_str= None,
+    temp_dir= None
 ):
     '''
     Evaluate a list of candidates using a list of metrics/objective functions.
@@ -546,6 +548,9 @@ def evaluate_candidates(
     set to None. The str should be formatted in a way that can be parsed by the
     SGE job scheduler.
 
+    temp_dir (str, None): path to the folder in which to create a temporary directory
+    to store the cluster calculation results. If None, then use the default system setting.
+
     Output
     -----
     scores (np.ndarray[float]): a (N, M) array of score outputs; N is the number
@@ -576,7 +581,8 @@ def evaluate_candidates(
                             cluster_mem_free_str, 
                             pkg_dir, 
                             (candidate_ind, metric_ind), 
-                            result_queue
+                            result_queue,
+                            temp_dir
                         )
                     )
                     jobs.append(proc)
@@ -592,7 +598,8 @@ def evaluate_candidates(
                         cluster_mem_free_str, 
                         pkg_dir, 
                         candidate_ind, 
-                        result_queue
+                        result_queue,
+                        temp_dir
                     )
                 )
                 jobs.append(proc)
@@ -688,7 +695,8 @@ class SavePop(Callback):
         cluster_parallelization= False, 
         cluster_parallelize_metrics= False, 
         cluster_time_limit_str= None, 
-        cluster_mem_free_str= None
+        cluster_mem_free_str= None,
+        temp_dir= None
     ):
         super().__init__()
         self.data['pop'] = []
@@ -701,6 +709,7 @@ class SavePop(Callback):
         self.cluster_parallelize_metrics= cluster_parallelize_metrics
         self.cluster_time_limit_str= cluster_time_limit_str
         self.cluster_mem_free_str= cluster_mem_free_str
+        self.temp_dir= temp_dir
 
     def notify(self, algorithm):
         metrics= algorithm.pop.get('F')
@@ -719,7 +728,8 @@ class SavePop(Callback):
                 cluster_parallelization= self.cluster_parallelization,
                 cluster_parallelize_metrics= self.cluster_parallelize_metrics,
                 cluster_time_limit_str= self.cluster_time_limit_str,
-                cluster_mem_free_str= self.cluster_mem_free_str
+                cluster_mem_free_str= self.cluster_mem_free_str,
+                temp_dir= self.temp_dir
             )
             observer_metrics_scores_df= pd.DataFrame(
                 observer_metrics_scores, 
@@ -756,7 +766,8 @@ class DumpPop(Callback):
         cluster_parallelization= False, 
         cluster_parallelize_metrics= False, 
         cluster_time_limit_str= None, 
-        cluster_mem_free_str= None
+        cluster_mem_free_str= None,
+        temp_dir= None
     ):
         super().__init__()
         self.protein= protein
@@ -770,6 +781,7 @@ class DumpPop(Callback):
         self.cluster_parallelize_metrics= cluster_parallelize_metrics
         self.cluster_time_limit_str= cluster_time_limit_str
         self.cluster_mem_free_str= cluster_mem_free_str
+        self.temp_dir= temp_dir
 
     def notify(self, algorithm):
         metrics= algorithm.pop.get('F')
@@ -788,7 +800,8 @@ class DumpPop(Callback):
                 cluster_parallelization= self.cluster_parallelization,
                 cluster_parallelize_metrics= self.cluster_parallelize_metrics,
                 cluster_time_limit_str= self.cluster_time_limit_str,
-                cluster_mem_free_str= self.cluster_mem_free_str
+                cluster_mem_free_str= self.cluster_mem_free_str,
+                temp_dir= self.temp_dir
             )
             observer_metrics_scores_df= pd.DataFrame(
                 observer_metrics_scores, 

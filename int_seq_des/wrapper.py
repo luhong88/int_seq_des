@@ -1,4 +1,4 @@
-import textwrap, os, io, sys, subprocess, tempfile, time, importlib.util
+import textwrap, os, io, sys, subprocess, tempfile, time, importlib
 
 import numpy as np, pandas as pd
 from Bio import SeqIO

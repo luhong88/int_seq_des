@@ -165,7 +165,6 @@ def run_single_pass(
 
 def run_nsga(
         protein,
-        protein_mpnn,
         pop_size, 
         n_generation,
         mutation_operator, 
@@ -182,6 +181,7 @@ def run_nsga(
         cluster_parallelize_metrics= False,
         cluster_time_limit_str= None, 
         cluster_mem_free_str= None,
+        temp_dir= None,
         restart= False, 
         init_pop_file= None, 
         init_mutation_rate= 0.1
@@ -192,8 +192,6 @@ def run_nsga(
     Input
     -----
     protein (protein.Protein): details of the protein system and design parameters.
-
-    protein_mpnn (wrapper.ProteinMPNNWrapper): ProteinMPNN setups as a wrapper object.
 
     pop_size (int): size of the genetic algorithm population.
 
@@ -251,6 +249,10 @@ def run_nsga(
     set to None. The str should be formatted in a way that can be parsed by the
     SGE job scheduler.
 
+    temp_dir (str, None): path to the folder in which to create a temporary directory
+    to store the cluster calculation results. If None, then use the default system 
+    setting.
+
     restart (bool): whether to initialize the simulation with a new or an existing
     sequence population. If set to True, start with an existing population, and
     the argument 'init_pop_file' is required; if False (default), start with a new
@@ -282,7 +284,9 @@ def run_nsga(
         cluster_parallelization, 
         cluster_parallelize_metrics,
         cluster_time_limit_str, 
-        cluster_mem_free_str)
+        cluster_mem_free_str,
+        temp_dir
+    )
 
     if restart:
         pop_initializer= LoadPop(init_pop_file)
@@ -333,7 +337,8 @@ def run_nsga(
                 cluster_parallelization, 
                 cluster_parallelize_metrics, 
                 cluster_time_limit_str, 
-                cluster_mem_free_str
+                cluster_mem_free_str,
+                temp_dir
             ),
             copy_algorithm= False
         )
@@ -357,7 +362,8 @@ def run_nsga(
                 cluster_parallelization, 
                 cluster_parallelize_metrics, 
                 cluster_time_limit_str, 
-                cluster_mem_free_str
+                cluster_mem_free_str,
+                temp_dir
             ),
             copy_algorithm= False
         )
