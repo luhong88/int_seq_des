@@ -2,7 +2,7 @@ import textwrap, glob, sys, subprocess, tempfile, json
 
 import numpy as np
 
-from utils import (
+from int_seq_des.utils import (
     sort_order, argsort, get_logger, sep, alphabet, merge_pdb_files
 )
 

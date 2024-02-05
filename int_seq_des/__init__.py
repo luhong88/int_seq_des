@@ -1,4 +1,4 @@
-import time, pickle
+import os, time, pickle
 
 import numpy as np, pandas as pd
 
@@ -7,14 +7,16 @@ from pymoo.algorithms.moo.nsga3 import NSGA3
 from pymoo.optimize import minimize
 from pymoo.util.ref_dirs import get_reference_directions
 
-from ga_operator import (
+from int_seq_des.ga_operator import (
     ProteinSampling, MultistateSeqDesignProblem
 )
-from utils import (
+from int_seq_des.utils import (
     get_logger, class_seeds, LoadPop, SavePop, DumpPop
 )
 
 logger= get_logger(__name__)
+
+path_to_script_folder= os.path.dirname(os.path.realpath(__file__))
 
 def run_single_pass(
     protein,
@@ -170,7 +172,6 @@ def run_nsga(
         mutation_operator, 
         crossover_operator, 
         metrics_list,
-        pkg_dir, 
         root_seed, 
         out_file_name, 
         saving_method,
@@ -207,8 +208,6 @@ def run_nsga(
     
     metrics_list (list): a list of metric objects/objective functions against
     which the designed sequences will be scored.
-
-    pkg_dir (str): the absolute path to the directory containing this package.
     
     root_seed (int): a random seed that controls all downstream random number generators.
     
@@ -279,7 +278,7 @@ def run_nsga(
     design_problem= MultistateSeqDesignProblem(
         protein, 
         metrics_list,
-        pkg_dir,
+        path_to_script_folder,
         comm, 
         cluster_parallelization, 
         cluster_parallelize_metrics,
@@ -332,7 +331,7 @@ def run_nsga(
                 metrics_list, 
                 observer_metrics_list, 
                 out_file_name, 
-                pkg_dir, 
+                path_to_script_folder, 
                 comm, 
                 cluster_parallelization, 
                 cluster_parallelize_metrics, 
@@ -357,7 +356,7 @@ def run_nsga(
                 protein, 
                 metrics_list, 
                 observer_metrics_list, 
-                pkg_dir, 
+                path_to_script_folder, 
                 comm, 
                 cluster_parallelization, 
                 cluster_parallelize_metrics, 

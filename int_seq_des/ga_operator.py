@@ -8,8 +8,8 @@ from pymoo.core.mutation import Mutation
 from pymoo.core.sampling import Sampling
 from pymoo.core.problem import Problem
 
-from wrapper import ObjectiveESM
-from utils import (
+from int_seq_des.wrapper import ObjectiveESM
+from int_seq_des.utils import (
     sort_order, 
     get_logger, 
     sep, 
