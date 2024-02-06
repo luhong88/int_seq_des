@@ -1,10 +1,10 @@
 import os
 from int_seq_des.protein import Residue, TiedResidue, DesignSequence, Chain
-from int_seq_des.wrapper import ObjectiveAF2Rank, ObjectiveESM, ProteinMPNNWrapper, ObjectiveProteinMPNNNegLogProb
+from int_seq_des.wrapper import ObjectiveAF2Rank, ObjectiveESM, ObjectiveProteinMPNNNegLogProb
 
 device= 'cpu'
 
-# specify absolute paths
+# specify absolute paths; update according to local setups
 tmscore_exec= '/wynton/home/kortemme/lhong/software/TMscore/TMscore'
 af2_params_dir= '/wynton/home/kortemme/lhong/software/af2rank/params'
 esm_script= '/wynton/home/kortemme/lhong/protein_gibbs_sampler/src/pgen/likelihood_esm.py'
