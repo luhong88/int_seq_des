@@ -54,7 +54,7 @@ def run_single_pass(
     protein_mpnn_batch_size (int): ProteinMPNN decoding batch size; same as the
     'batch_size' option in ProteinMPNN.
     
-    root_seed (int): a random seed to initialize the numpy random generator.
+    root_seed (int, list[int]): a random seed to initialize the numpy random generator.
     
     out_file_name (str): the name for the output file, without suffixes.
     
@@ -209,7 +209,8 @@ def run_nsga(
     metrics_list (list): a list of metric objects/objective functions against
     which the designed sequences will be scored.
     
-    root_seed (int): a random seed that controls all downstream random number generators.
+    root_seed (int, list[int]): a random seed that controls all downstream random 
+    number generators.
     
     out_file_name (str): the name for the output file, without suffixes; see the
     'saving_method' argument.
