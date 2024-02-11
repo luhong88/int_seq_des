@@ -509,8 +509,7 @@ class MutationMethod(object):
         allowed_pos_list
     ):
         '''
-        Rank designable positions based on ESM (pseudo)likelihood scores with
-        masked language modeling.
+        Rank designable positions based on ESM (pseudo)likelihood scores.
 
         Input
         -----

@@ -171,8 +171,8 @@ class ObjectiveAF2Rank(object):
 
 class ObjectiveESM(object):
     '''
-    A wrapper for the pgen package that can be used to score sequences with
-    masked language modeling using ESM models.
+    A wrapper for the pgen package that can be used to score sequences with ESM
+    models.
 
     Currently, a new instance of the ESM model is created with each apply() 
     function call. This reduces memory usage at the expense of increased
@@ -224,6 +224,8 @@ class ObjectiveESM(object):
         assert os.path.isfile(script_loc)
 
         # input and output both handled through io streams
+        # note that the --masking_off tag means a single forward pass of the model
+        # with no masking
         self.exec= [
             sys.executable, script_loc,
             '--device', device,
