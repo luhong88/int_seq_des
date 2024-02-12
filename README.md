@@ -4,7 +4,13 @@ Code and benchmark data associated with the preprint "An Integrative Approach to
 
 ## TL;DR
 
-Clone the repo and `pip install .` from the repo root directory to install the package. To get started, take a look at the RfaH benchmark code in [`RfaH_benchmark/`](RfaH_benchmark/) and the docstrings in [`__init__.py`](int_seq_des/__init__.py), which provides the primary user interface for setting up a simulation.
+### Motivation
+
+This package provides a demonstration of how evolutionary multiobjective optimization techniques can be used to coherently integrate multiple models into the computational protein sequence design process, by 1) directly embedding models into the mutation operator to bias sampling in the sequence space, and 2) explicitly approximating the Pareto front in a user-specified objective space. The main advantage of this approach is that it obviates the need for post hoc filtering or hyperparameter tuning of the generative model in a multiobjective protein design problem; we anticipate this approach to be broadly relevant for problems with complex design specifications that cannot be easily encapsulated by a single model or objective function.
+
+### Getting started with the repo
+
+Clone the repo and `pip install .` from the repo root directory to install the package. Take a look at the RfaH benchmark code in [`RfaH_benchmark/`](RfaH_benchmark/) and the docstrings in [`__init__.py`](int_seq_des/__init__.py), which provides the primary user interface for setting up a simulation.
 
 ## Installation
 
