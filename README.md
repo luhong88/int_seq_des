@@ -2,9 +2,13 @@
 
 Code and benchmark data associated with the preprint "An Integrative Approach to Protein Sequence Design through Multiobjective Optimization".
 
+## TL;DR
+
+Clone the repo and `pip install .` from the repo root directory to install the package. To get started, take a look at the RfaH benchmark code in `RfaH_benchmark/` and the docstrings in `__init__.py`, which provides the primary user interface for setting up a simulation.
+
 ## Installation
 
-Clone the repo and `pip install .` from the repo root directory. The repo can also be packaged into a `.whl` file using `python -m build --wheel` from the root directory.
+Besides `pip install`, the repo can also be packaged into a `.whl` file using `python -m build --wheel` from the root directory.
 
 ### Optional dependencies
 
@@ -40,11 +44,4 @@ The code supports three modes of parallelization:
 
 ## RfaH benchmark
 
-The code for performing RfaH benchmark design simulations is located in `/RfaH_benchmark`:
-* `config.py`: protein system and simulation setups required for all design simulations. The user needs to update file/folder path strings in this file according to the local setups.
-* `run_ga.py`: performs multistate RfaH sequence design with NSGA-II. The script is setup to sweep through a set of mutation rates, mutation operator setups, and objective function setups with the `batch_settings_dict` variable and the `batch_ind` command line argument.
-* `run_ad.py`: performs multistate RfaH sequence design in ProteinMPNN and computes additional metric/objective functions for the redesigned sequences; an option is provided to score the WT sequence only.
-* `run_sd.py`: performs single-state RfaH sequence design in ProteinMPNN and computes additional metric/objective functions for the redesigned sequences. The user needs to specify which RfaH state to redesign as a command line argument, although the metric/objective functions will be calculated for both states.
-
-The Rosetta relaxed PDB files are located at `pdb_files/`. The design simulation results will be outputted as pickle files in the `output/` folder. `run_ga.py` is setup for parallelization over an SGE job scheduler, and `run_ad.py` and `run_sd.py` are setup to be submitted as SGE array jobs (pass the array job ID to `batch_ind` as a command line argument).
-
+See the `RfaH_benchmark/` folder for more information on the data and code for the RfaH benchmark anlaysis.
