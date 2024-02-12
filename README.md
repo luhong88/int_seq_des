@@ -4,7 +4,7 @@ Code and benchmark data associated with the preprint "An Integrative Approach to
 
 ## TL;DR
 
-Clone the repo and `pip install .` from the repo root directory to install the package. To get started, take a look at the RfaH benchmark code in `RfaH_benchmark/` and the docstrings in `__init__.py`, which provides the primary user interface for setting up a simulation.
+Clone the repo and `pip install .` from the repo root directory to install the package. To get started, take a look at the RfaH benchmark code in [`RfaH_benchmark/`](RfaH_benchmark/) and the docstrings in [`__init__.py`](int_seq_des/__init__.py), which provides the primary user interface for setting up a simulation.
 
 ## Installation
 
@@ -44,4 +44,4 @@ The code supports three modes of parallelization:
 
 ## RfaH benchmark
 
-See the `RfaH_benchmark/` folder for more information on the data and code for the RfaH benchmark anlaysis.
+See the [`RfaH_benchmark/`](RfaH_benchmark/) folder for more information on the data and code for the RfaH benchmark anlaysis.
