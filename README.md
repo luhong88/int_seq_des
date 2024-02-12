@@ -29,7 +29,7 @@ Note that this repo contains a vendorized version of [ProteinMPNN](https://githu
 
 Change the line `logger.setLevel(logging.WARN)` in `utils.get_logger()` to `logger.setLevel(logging.DEBUG)` to print out debugging information.
 
-### Parallelization
+## Parallelization
 
 As long as `torch` and `jax` are properly configured, the code should automatically detect and utilize available GPUs. To force CPU computation, set the `device` argument to `cpu` for the relevant wrapper objects.
 
