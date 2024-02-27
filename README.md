@@ -1,12 +1,12 @@
 # Integrative protein sequence design with evolutionary multiobjective optimization
 
-Code and benchmark data associated with the preprint "An Integrative Approach to Protein Sequence Design through Multiobjective Optimization".
+Code and benchmark data associated with the preprint "An integrative approach to protein sequence design through multiobjective optimization".
 
 ## TL;DR
 
 ### Motivation
 
-This package provides a demonstration of how evolutionary multiobjective optimization techniques can be used to coherently integrate multiple models into the computational protein sequence design process, by 1) directly embedding models into the mutation operator to bias sampling in the sequence space, and 2) explicitly approximating the Pareto front in a user-specified objective space. The main advantage of this approach is that it obviates the need for post hoc filtering or hyperparameter tuning of the generative model in a multiobjective protein design problem; we anticipate this approach to be broadly relevant for problems with complex design specifications that cannot be easily encapsulated by a single model or objective function.
+This package provides a demonstration of how evolutionary multiobjective optimization techniques can be used to coherently integrate multiple models into the computational protein sequence design process, by 1) directly embedding models into the mutation operator to bias sampling in the sequence space, and 2) explicitly approximating the Pareto front in a user-specified objective space. The main advantage of this approach is that it outperforms and obviates the need for post hoc filtering in a multiobjective protein design problem; we anticipate this approach to be broadly relevant for problems with complex design specifications that cannot be easily encapsulated by a single model or objective function.
 
 ### Getting started with the repo
 
