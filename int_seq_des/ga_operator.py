@@ -49,7 +49,6 @@ class MutationMethod(object):
         mutation_rate, 
         sigma= None,
         protein_mpnn= None,
-        esm_script_loc= None, 
         esm_model= None, 
         esm_device= None
     ):
@@ -89,9 +88,6 @@ class MutationMethod(object):
         protein_mpnn (wrapper.ProteinMPNNWrapper, None): a ProteinMPNN wrapper object.
         Cannot be None if 'choose_AA_method' invokes ProteinMPNN.
 
-        esm_script_loc (str, None): path to the 'likelihood_esm.py' file in the 
-        pgen package. If None, will attempt to search for the module.
-
         esm_model (str, None): name of an ESM model. See wrapper.ObjectiveESM for
         more details. If None, use 'esm1v'.
         
@@ -105,7 +101,6 @@ class MutationMethod(object):
         self.mutation_rate= mutation_rate
         self.sigma= sigma
         self.protein_mpnn= protein_mpnn
-        self.esm_script_loc= esm_script_loc
         self.esm_model= esm_model
         self.esm_device= esm_device
 
@@ -161,7 +156,6 @@ class MutationMethod(object):
             return self._esm_then_cutoff(
                 ObjectiveESM(
                     chain_id= self._random_chain_picker(protein),
-                    script_loc= self.esm_script_loc,
                     model_name= self.esm_model if self.esm_model is not None else 'esm1v',
                     device= self.esm_device if self.esm_device is not None else 'cpu',
                     sign_flip= False
@@ -175,7 +169,6 @@ class MutationMethod(object):
             return self._esm_then_spatial(
                 ObjectiveESM(
                     chain_id= self._random_chain_picker(protein),
-                    script_loc= self.esm_script_loc,
                     model_name= self.esm_model if self.esm_model is not None else 'esm1v',
                     device= self.esm_device if self.esm_device is not None else 'cpu',
                     sign_flip= False

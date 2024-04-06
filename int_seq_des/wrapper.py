@@ -205,7 +205,6 @@ class ObjectiveESM(object):
     def __init__(
         self, 
         chain_id, 
-        script_loc= None, 
         model_name= 'esm1v', 
         device= 'cpu', 
         sign_flip= True,
