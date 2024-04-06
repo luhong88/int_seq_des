@@ -4,7 +4,7 @@
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
-from colabdesign import mk_af_model
+from int_seq_des.af_model import mk_af_model
 from colabdesign.shared.utils import copy_dict
 
 import os, subprocess, random, tempfile, numpy as np
@@ -48,7 +48,7 @@ def tmscore(x,y, tmscore_exec):
     return o
 
 class af2rank:
-    def __init__(self, pdb, params_dir, tmscore_exec, chain=None, model_name="model_1_ptm", model_names=None):
+    def __init__(self, pdb, params_dir, tmscore_exec, chain=None, model_name="model_1_ptm", model_names=None, haiku_parameters_dict=None):
         self.args = {
             "pdb":pdb, "chain":chain,
             "use_multimer":("multimer" in model_name),
@@ -57,6 +57,7 @@ class af2rank:
         }
         self.params_dir= params_dir
         self.tmscore_exec= tmscore_exec
+        self.haiku_parameters_dict= haiku_parameters_dict
         self.reset()
 
     def reset(self):
@@ -66,7 +67,8 @@ class af2rank:
             use_multimer=self.args["use_multimer"],
             debug=False,
             model_names=self.args["model_names"],
-            data_dir=self.params_dir
+            data_dir=self.params_dir,
+            haiku_parameters_dict= self.haiku_parameters_dict
         )
         self.model.prep_inputs(self.args["pdb"], chain=self.args["chain"])
         self.model.set_seq(mode="wildtype")

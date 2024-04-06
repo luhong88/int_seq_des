@@ -3,7 +3,6 @@ import textwrap, os, io, sys, subprocess, tempfile, time, importlib
 import numpy as np, pandas as pd
 from Bio import SeqIO
 
-from int_seq_des.af2rank import af2rank
 from int_seq_des.protein import (
     DesignedProtein, SingleStateProtein, Residue, TiedResidue
 )
@@ -31,7 +30,9 @@ class ObjectiveAF2Rank(object):
         score_term= 'composite', 
         device= 'cpu', 
         sign_flip= True, 
-        use_surrogate_tied_residues= False
+        use_surrogate_tied_residues= False,
+        persistent= False,
+        haiku_parameters_dict= None
     ):
         '''
         Input
@@ -57,6 +58,16 @@ class ObjectiveAF2Rank(object):
 
         use_surrogate_tied_residues: set to True for single-state scoring; False
         by default.
+
+        persistent (bool): set to True to initialize the AF2 model in __init__(),
+        otherwise the model will be initialized in apply(). Useful if running
+        the simulation in serial and needs to reuse the same objective function
+        object multiple times.
+
+        haiku_parameters_dict (dict): a dictionary where the keys are AF2 model
+        parameter names and the values are the corresponding model parameters.
+        Useful for pre-loading AF2 model parameters if the the same objective
+        function object will be reused multiple times.
         '''
         multimer= True if len(chain_ids) > 1 else False
         # note that the multimer params version might change in the future,
@@ -83,6 +94,20 @@ class ObjectiveAF2Rank(object):
         self.template_file_loc= template_file_loc
         self.tmscore_exec= tmscore_exec
         self.params_dir= params_dir
+        self.persistent= persistent
+        self.haiku_parameters_dict= haiku_parameters_dict
+
+        if self.persistent:
+            with Device(self.device):
+                from int_seq_des.af2rank import af2rank
+                self.model= af2rank(
+                    pdb= self.template_file_loc,
+                    chain= ','.join(self.chain_ids),
+                    model_name= self.settings['model_name'],
+                    tmscore_exec= self.tmscore_exec,
+                    params_dir= self.params_dir,
+                    haiku_parameters_dict= self.haiku_parameters_dict
+                )
         
     def __str__(self):
         return self.name
@@ -125,13 +150,18 @@ class ObjectiveAF2Rank(object):
         )
         output= []
         with Device(self.device):
-            model= af2rank(
-                pdb= self.template_file_loc,
-                chain= ','.join(self.chain_ids),
-                model_name= self.settings['model_name'],
-                tmscore_exec= self.tmscore_exec,
-                params_dir= self.params_dir
-            )
+            if self.persistent:
+                model= self.model
+            else:
+                from int_seq_des.af2rank import af2rank
+                model= af2rank(
+                    pdb= self.template_file_loc,
+                    chain= ','.join(self.chain_ids),
+                    model_name= self.settings['model_name'],
+                    tmscore_exec= self.tmscore_exec,
+                    params_dir= self.params_dir,
+                    haiku_parameters_dict= self.haiku_parameters_dict
+                )
             for seq_ind, seq in enumerate(full_seqs):
                 t0= time.time()
                 output_dict= model.predict(
@@ -186,7 +216,8 @@ class ObjectiveESM(object):
         script_loc= None, 
         model_name= 'esm1v', 
         device= 'cpu', 
-        sign_flip= True
+        sign_flip= True,
+        persistent= False
     ):
         '''
         Input
@@ -204,41 +235,32 @@ class ObjectiveESM(object):
 
         sign_flip (bool): whether to multiply the score by -1. By default set to
         True so that the metric can be used in a minimization problem.
+
+        persistent (bool): set to True to initialize the ESM model in __init__(),
+        otherwise the model will be initialized in apply(). Useful if running
+        the simulation in serial and needs to reuse the same objective function
+        object multiple times.
         '''
         self.chain_id= chain_id
         self.model_name= model_name
         self.device= device
         self.sign_flip= sign_flip
+        self.persistent= persistent
         self.name= ('neg_' if sign_flip else '') + f'{model_name}_chain_{chain_id}'
 
-        # check for pgen script location
-        if script_loc is None:
-            pgen_spec= importlib.util.find_spec('pgen')
-            if pgen_spec is None:
-                raise ValueError('The "pgen" module path cannot be inferred.')
-            else:
-                pgen_folder_path= pgen_spec.submodule_search_locations
-                assert len(pgen_folder_path) == 1, 'More than one "pgen" module paths found.'
-                script_loc= pgen_folder_path[0] + '/likelihood_esm.py'
-
-        assert os.path.isfile(script_loc)
-
-        # input and output both handled through io streams
-        # note that the --masking_off tag means a single forward pass of the model
-        # with no masking
-        self.exec= [
-            sys.executable, script_loc,
-            '--device', device,
-            '--model', self.model_name,
-            '--score_name', self.model_name,
-            '--masking_off',
-            '--csv'
-        ]
+        if self.persistent:
+            from pgen.likelihood_esm import model_map
+            self.model= model_map[self.model_name]()
 
     def __str__(self):
         return self.name
-
-    def apply(self, candidates, protein, position_wise= False):
+    
+    def apply(
+        self,
+        candidates, 
+        protein, 
+        position_wise= False,
+    ):
         '''
         Input
         -----
@@ -258,94 +280,61 @@ class ObjectiveESM(object):
         or a (N,) array if 'position_wise' is False; here, N is the number of input
         candidates containing and L is the length of the target chain.
         '''
-        with Device(self.device):
-            esm_dir= tempfile.TemporaryDirectory()
-            input_fa= ''
-            for candidate_ind, candidate in enumerate(candidates):
-                full_seq= protein.get_chain_full_seq(
-                    self.chain_id, 
-                    candidate, 
-                    drop_terminal_missing_res= False, 
-                    drop_internal_missing_res= False
-                )
-                input_fa+= f'>seq_{candidate_ind}\n{full_seq}\n'
-            with open(f'{esm_dir.name}/input_seq.fa', 'w') as f:
-                f.write(input_fa)
-            
-            exec_str= self.exec
-            exec_str+= ['-i', f'{esm_dir.name}/input_seq.fa']
-            out_f= f'{esm_dir.name}/scores.out'
-            if position_wise:
-                exec_str+= ['--positionwise', out_f]
-            else:
-                exec_str+= ['-o', out_f]
+        from pgen.esm_sampler import ESM_sampler
+        from pgen.likelihood_esm import model_map
 
-            t0= time.time()
-            proc= subprocess.run(
-                exec_str, 
-                stdout= subprocess.PIPE, 
-                stderr= subprocess.PIPE, 
-                check= False
+        input_seqs= []
+        for candidate in candidates:
+            full_seq= protein.get_chain_full_seq(
+                self.chain_id, 
+                candidate, 
+                drop_terminal_missing_res= False, 
+                drop_internal_missing_res= False
             )
-            t1= time.time()
-            logger.info(
-                f'ESM (device: {self.device}, name= {self.name}, position_wise) run time: {t1 - t0} s.\n'
+            input_seqs.append(full_seq)
+
+        t0= time.time()
+        if self.persistent:
+            model= self.model
+        else:
+            model= model_map[self.model_name]()
+        
+        sampler= ESM_sampler(model, device= self.device)
+        scores_iter= sampler.log_likelihood_batch(
+            input_seqs, 
+            with_masking= False, 
+            mask_distance= float("inf"), 
+            batch_size= 1
+        )
+
+        output_scores= []
+        output_positional_scores= []
+        for score, positional_scores in enumerate(scores_iter):
+            output_scores.append(score)
+            output_positional_scores.append(positional_scores)
+
+        t1= time.time()
+        logger.info(
+            f'ESM (device: {self.device}, name= {self.name}, position_wise) run time: {t1 - t0} s.\n'
+        )
+
+        if position_wise:
+            output_arr= np.asarray(output_positional_scores, dtype= float)
+        else:
+            output_arr= np.asarray(output_scores, dtype= float)        
+        # take the negative because the algorithm expects a minimization problem
+        neg_output_arr= -output_arr if self.sign_flip else output_arr 
+
+        logger.debug(
+            textwrap.dedent(
+                f'''\
+                ESM (device: {self.device}, name= {self.name}) apply() returned the following results:
+                {sep}\n{neg_output_arr}\n{sep}
+                '''
             )
+        )
 
-            try:
-                output_df= pd.read_csv(out_f, sep= ',')
-                if position_wise:
-                    output_arr= output_df[self.model_name].\
-                        str.\
-                        split(pat= ';', expand= True).\
-                        to_numpy(dtype= float)
-                else:
-                    output_arr= output_df[self.model_name].to_numpy(dtype= float)
-                    
-            except:
-                # The script uses stderr to print progression info,
-                # so only check for error when attempting to read the output file
-                logger.exception(
-                    textwrap.dedent(
-                        f'''\
-                        Command {proc.args} returned non-zero exist status {proc.returncode} with the input
-                        {sep}\n{input_fa}\n{sep}
-                        and the stdout
-                        {sep}\n{proc.stdout.decode()}\n{sep}
-                        and the stderr
-                        {sep}\n{proc.stderr.decode()}\n{sep}
-                        '''
-                    )
-                )
-                sys.exit(1)
-
-            esm_dir.cleanup()
-            
-            logger.debug(
-                textwrap.dedent(
-                    f'''\
-                    ESM (device: {self.device}, name= {self.name}) was called with the command:
-                    {sep}\n{exec_str}\n{sep}
-                    stdout:
-                    {sep}\n{proc.stdout.decode()}\n{sep}
-                    stderr:
-                    {sep}\n{proc.stderr.decode()}\n{sep}
-                    '''
-                )
-            )
-
-            # take the negative because the algorithm expects a minimization problem
-            neg_output_arr= -output_arr if self.sign_flip else output_arr 
-            logger.debug(
-                textwrap.dedent(
-                    f'''\
-                    ESM (device: {self.device}, name= {self.name}) apply() returned the following results:
-                    {sep}\n{neg_output_arr}\n{sep}
-                    '''
-                )
-            )
-
-            return neg_output_arr
+        return neg_output_arr
 
 class ObjectiveDebug(object):
     '''
