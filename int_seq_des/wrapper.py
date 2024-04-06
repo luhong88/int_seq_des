@@ -300,7 +300,7 @@ class ObjectiveESM(object):
 
         output_scores= []
         output_positional_scores= []
-        for score, positional_scores in enumerate(scores_iter):
+        for score, positional_scores in scores_iter:
             output_scores.append(score)
             output_positional_scores.append(positional_scores)
 
@@ -310,9 +310,9 @@ class ObjectiveESM(object):
         )
 
         if position_wise:
-            output_arr= np.asarray(output_positional_scores, dtype= float)
+            output_arr= np.asarray(output_positional_scores)
         else:
-            output_arr= np.asarray(output_scores, dtype= float)        
+            output_arr= np.asarray(output_scores)
         # take the negative because the algorithm expects a minimization problem
         neg_output_arr= -output_arr if self.sign_flip else output_arr 
 
