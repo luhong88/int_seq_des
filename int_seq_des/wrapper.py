@@ -16,10 +16,6 @@ class ObjectiveAF2Rank(object):
     '''
     A wrapper for the AF2Rank method via ColabDesign. Sequences for protein 
     complexes will be concatenated.
-
-    Currently, a new instance of the AlphaFold2 model is created with each
-    apply() function call. This reduces memory usage at the expense of increased
-    disk I/O overhead.
     '''
     def __init__(
         self, 
@@ -203,10 +199,6 @@ class ObjectiveESM(object):
     '''
     A wrapper for the pgen package that can be used to score sequences with ESM
     models.
-
-    Currently, a new instance of the ESM model is created with each apply() 
-    function call. This reduces memory usage at the expense of increased
-    disk I/O overhead.
 
     TODO: support multichain protein complexes by concatenating their sequences.
     '''
