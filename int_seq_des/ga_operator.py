@@ -50,7 +50,8 @@ class MutationMethod(object):
         sigma= None,
         protein_mpnn= None,
         esm_model= None, 
-        esm_device= None
+        esm_device= None,
+        esm_sampler_dict= None
     ):
         '''
         Input
@@ -94,6 +95,11 @@ class MutationMethod(object):
         esm_device (str, None): where to perform ESM calculations. Set to 'cpu' to 
         force calculations on the CPUs, otherwise the argument has no effect. If
         None, use 'cpu'.
+
+        esm_sampler_dict (dict[str, pgen.esm_sampler.ESM_sampler]): a dictionary
+        where the keys are ESM model names and the values are the ESM_sampler objects.
+        If this is provided, then apply() will no longer initializing new models
+        each time it is called.
         '''
         self.choose_pos_method= choose_pos_method
         self.choose_AA_method= choose_AA_method
@@ -103,6 +109,7 @@ class MutationMethod(object):
         self.protein_mpnn= protein_mpnn
         self.esm_model= esm_model
         self.esm_device= esm_device
+        self.esm_sampler_dict= esm_sampler_dict
 
         self.name= f'{choose_pos_method}+{choose_AA_method}_{prob}'
 
@@ -158,7 +165,8 @@ class MutationMethod(object):
                     chain_id= self._random_chain_picker(protein),
                     model_name= self.esm_model if self.esm_model is not None else 'esm1v',
                     device= self.esm_device if self.esm_device is not None else 'cpu',
-                    sign_flip= False
+                    sign_flip= False,
+                    esm_sampler_dict= self.esm_sampler_dict
                 ),
                 candidate,
                 protein,
@@ -171,7 +179,8 @@ class MutationMethod(object):
                     chain_id= self._random_chain_picker(protein),
                     model_name= self.esm_model if self.esm_model is not None else 'esm1v',
                     device= self.esm_device if self.esm_device is not None else 'cpu',
-                    sign_flip= False
+                    sign_flip= False,
+                    esm_sampler_dict= self.esm_sampler_dict
                 ),
                 candidate,
                 protein,

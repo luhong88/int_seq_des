@@ -102,7 +102,8 @@ class ObjectiveAF2Rank(object):
                     model_name= self.settings['model_name'],
                     tmscore_exec= self.tmscore_exec,
                     params_dir= self.params_dir,
-                    haiku_parameters_dict= self.haiku_parameters_dict
+                    haiku_parameters_dict= self.haiku_parameters_dict,
+                    model_names= [self.settings['model_name']]
                 )
         
     def __str__(self):
@@ -156,7 +157,8 @@ class ObjectiveAF2Rank(object):
                     model_name= self.settings['model_name'],
                     tmscore_exec= self.tmscore_exec,
                     params_dir= self.params_dir,
-                    haiku_parameters_dict= self.haiku_parameters_dict
+                    haiku_parameters_dict= self.haiku_parameters_dict,
+                    model_names= [self.settings['model_name']]
                 )
             for seq_ind, seq in enumerate(full_seqs):
                 t0= time.time()
@@ -208,7 +210,7 @@ class ObjectiveESM(object):
         model_name= 'esm1v', 
         device= 'cpu', 
         sign_flip= True,
-        persistent= False
+        esm_sampler_dict= None
     ):
         '''
         Input
@@ -227,21 +229,17 @@ class ObjectiveESM(object):
         sign_flip (bool): whether to multiply the score by -1. By default set to
         True so that the metric can be used in a minimization problem.
 
-        persistent (bool): set to True to initialize the ESM model in __init__(),
-        otherwise the model will be initialized in apply(). Useful if running
-        the simulation in serial and needs to reuse the same objective function
-        object multiple times.
+        esm_sampler_dict (dict[str, pgen.esm_sampler.ESM_sampler]): a dictionary
+        where the keys are ESM model names and the values are the ESM_sampler objects.
+        If this is provided, then apply() will no longer initializing new models
+        each time it is called.
         '''
         self.chain_id= chain_id
         self.model_name= model_name
+        self.esm_sampler_dict= esm_sampler_dict
         self.device= device
         self.sign_flip= sign_flip
-        self.persistent= persistent
         self.name= ('neg_' if sign_flip else '') + f'{model_name}_chain_{chain_id}'
-
-        if self.persistent:
-            from pgen.likelihood_esm import model_map
-            self.model= model_map[self.model_name]()
 
     def __str__(self):
         return self.name
@@ -284,13 +282,12 @@ class ObjectiveESM(object):
             )
             input_seqs.append(full_seq)
 
-        t0= time.time()
-        if self.persistent:
-            model= self.model
+        t0= time.time()        
+        if self.esm_sampler_dict is not None:
+            sampler= self.esm_sampler_dict[self.model_name]
         else:
             model= model_map[self.model_name]()
-        
-        sampler= ESM_sampler(model, device= self.device)
+            sampler= ESM_sampler(model, device= self.device)
         scores_iter= sampler.log_likelihood_batch(
             input_seqs, 
             with_masking= False, 
