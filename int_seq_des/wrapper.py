@@ -9,6 +9,7 @@ from int_seq_des.protein import (
 from int_seq_des.utils import (
     sort_order, npz_to_dict, get_logger, sep, Device
 )
+from int_seq_des import pmpnn
 
 logger= get_logger(__name__)
 
@@ -424,12 +425,7 @@ class ProteinMPNNWrapper(object):
         protein, 
         temp,
         model_weights_loc,
-        detect_degeneracy= False, 
-        corr_cutoff= 0.9,
-        uniform_sampling= False, 
-        geometric_prob= 1.0,
         device= 'cpu', 
-        protein_mpnn_run_loc= None
     ):
         '''
         Input
@@ -442,49 +438,12 @@ class ProteinMPNNWrapper(object):
         model_weights_loc (str): path to the folder containing the desired ProteinMPNN
         weight parameter files.
 
-        detect_degeneracy (bool): whether to detect and average out degenerate
-        dimensions during tied sequence decoding; useful for (pseudo)symmetry
-        detection. Only relevant for the 'ProteinMPNN-PD' mode; False by default.
-
-        corr_cutoff (float): correlation coefficient threshold for degeneracy
-        detection. Only relevant for the 'ProteinMPNN-PD' mode; default to 0.9.
-
-        uniform_sampling (bool): set to True to perform uniform sampling conditioned
-        on the Pareto front during sequence decoding. Only relevant for the
-        'ProteinMPNN-PD' mode; False by default.
-        
-        geometric_prob (float): parameter for a geometric distribution when picking 
-        which Pareto front to sample from. Only relevant for the 'ProteinMPNN-PD'
-        mode; default to 1.0, which disables sampling outside of the Pareto front.
-
         device (str): where to perform ProteinMPNN calculations. Set to 'cpu' to 
         force calculations on the CPUs, otherwise the argument has no effect.
-
-        protein_mpnn_run_loc (str, None): path to the 'protein_mpnn_run.py' file. By
-        default (None) set to None and the object will use the vendorized ProteinMPNN
-        script.
         '''
         self.protein= protein
-
-        if protein_mpnn_run_loc is None:
-            protein_mpnn_run_loc= os.path.dirname(os.path.realpath(__file__)) + \
-                '/protein_mpnn_run.py'
-
-        self.exec_str= [
-            sys.executable, protein_mpnn_run_loc,
-            '--path_to_model_weights', model_weights_loc,
-            '--out_folder', os.getcwd(),
-            '--sampling_temp', str(temp),
-            '--corr_cutoff', str(corr_cutoff),
-            '--geometric_prob', str(geometric_prob),
-            '--write_to_stdout'
-        ]
-        if detect_degeneracy:
-            self.exec_str+= ['--detect_degeneracy']
-        if uniform_sampling:
-            self.exec_str+=['--uniform_sampling']
-        #TODO: enable **kwargs parsing
-
+        self.path_to_model_weights= model_weights_loc
+        self.sampling_temp= str(temp)
         self.device= device
 
     def design(
@@ -525,8 +484,7 @@ class ProteinMPNNWrapper(object):
 
         Output
         -----
-        records (list[Bio.SeqRecord.SeqRecord]): a list of Biopython SeqRecord
-        object representing the designed sequences.
+        seq_list (list[str]): a list of designed sequences as strings.
 
         chains_to_design (np.ndarray[str]): an array containing the chains that
         are redesigned; i.e., the chains must contain residues listed in the
@@ -535,71 +493,41 @@ class ProteinMPNNWrapper(object):
         object, because it is possible to select a subset of design positions
         that do not map onto some of the designable chains.
         '''
-        with Device(self.device):
-            if method not in ['ProteinMPNN-AD', 'ProteinMPNN-PD']:
-                raise ValueError('Invalid method definition.')
-            
-            designed_protein= DesignedProtein(
-                self.protein, base_candidate, proposed_des_pos_list
-            )
+        model_info_dict= pmpnn.load_model(
+            seed= seed if seed is not None else 0,
+            path_to_model_weights= self.path_to_model_weights,
+            force_cpu= self.device == 'cpu'
+        )
 
-            out_dir, file_loc_exec_str= designed_protein.dump_jsons()
+        if method not in ['ProteinMPNN-AD']:
+            raise ValueError('Invalid method definition.')
+        
+        designed_protein= DesignedProtein(
+            self.protein, base_candidate, proposed_des_pos_list
+        )
 
-            exec_str= (
-                self.exec_str + \
-                file_loc_exec_str + \
-                [
-                    '--num_seq_per_target', str(num_seqs), 
-                    '--batch_size', str(batch_size)
-                ]
-            )
-            if seed is not None:
-                exec_str += ['--seed', str(seed)]
-            if method == 'ProteinMPNN-PD':
-                exec_str+= ['--pareto']
+        t0= time.time()
+        des_seq_list= pmpnn.design_proteins(
+            model_info_dict= model_info_dict,
+            parsed_pdbs= designed_protein.parsed_pdb_json,
+            num_seq_per_target= num_seqs,
+            batch_size= batch_size,
+            sampling_temp= self.sampling_temp,
+            chain_id_dict= designed_protein.parsed_fixed_chains,
+            fixed_positions_dict= designed_protein.parsed_fixed_positions,
+            tied_positions_dict= designed_protein.parsed_tied_positions
+        )
+        t1= time.time()
 
-            t0= time.time()
-            proc= subprocess.run(
-                exec_str, 
-                stdout= subprocess.PIPE, 
-                stderr= subprocess.PIPE, 
-                check= False)
-            t1= time.time()
+        logger.info(
+            f'ProteinMPNN (device: {self.device}) run time: {t1 - t0} s.'
+        )
 
-            logger.info(
-                f'ProteinMPNN (device: {self.device}) run time: {t1 - t0} s.'
-            )
-            if proc.stderr:
-                raise RuntimeError(
-                    textwrap.dedent(
-                        f'''\
-                        Command {proc.args} returned non-zero exist status {proc.returncode} with the stderr
-                        {sep}\n{proc.stderr.decode()}\n{sep}
-                        '''
-                    )
-                )
-            logger.debug(
-                textwrap.dedent(
-                    f'''\
-                    ProteinMPNN (device: {self.device}) was called with the command:
-                    {sep}\n{exec_str}\n{sep}
-                    stdout:
-                    \n{sep}\n{proc.stdout.decode()}\n{sep}
-                    stderr:
-                    {sep}\n{proc.stderr.decode()}\n{sep}
-                    '''
-                )
-            )
-
-            records = SeqIO.parse(io.StringIO(proc.stdout.decode()), "fasta")
-            
-            out_dir.cleanup()
-
-            return list(records), designed_protein.design_seq.chains_to_design
+        return des_seq_list, designed_protein.design_seq.chains_to_design
     
     def design_seqs_to_candidates(
         self, 
-        fa_records, 
+        des_seq_list, 
         candidate_chains_to_design, 
         base_candidate
     ):
@@ -609,8 +537,7 @@ class ProteinMPNNWrapper(object):
 
         Input
         -----
-        fa_records (list[Bio.SeqRecord.SeqRecord]): a list of Biopython SeqRecord
-        object representing the designed sequences.
+        fa_records (list[str]): a list of designed sequences as strings.
 
         candidate_chains_to_design (np.array[str]): an array containing the chains
         that are redesigned.
@@ -639,8 +566,7 @@ class ProteinMPNNWrapper(object):
             AA_locator.append([chain_id, res_ind])
 
         seq_list= []
-        for fa in fa_records:
-            name, seq = fa.id, str(fa.seq)
+        for seq in des_seq_list:
             # ProteinMPNN only output sequences of the designable chains
             seq_dict= dict(zip(candidate_chains_to_design, seq.split('/'))) 
             seq_list.append(seq_dict)
@@ -682,7 +608,7 @@ class ProteinMPNNWrapper(object):
         design_seqs_to_candidates(); see the docstrings of these two functions
         for more information.
         '''
-        fa_records, candidate_chains_to_design= self.design(
+        des_seq_list, candidate_chains_to_design= self.design(
             method, 
             base_candidate, 
             proposed_des_pos_list, 
@@ -691,7 +617,7 @@ class ProteinMPNNWrapper(object):
             seed
         )
         candidates= self.design_seqs_to_candidates(
-            fa_records, candidate_chains_to_design, base_candidate
+            des_seq_list, candidate_chains_to_design, base_candidate
         )
         return candidates
 
@@ -748,6 +674,12 @@ class ProteinMPNNWrapper(object):
         .npz score results. If 'candidates' is not None, then N is the number of
         candidates; otherwise N = 1.
         '''
+        model_info_dict= pmpnn.load_model(
+            seed= seed if seed is not None else 0,
+            path_to_model_weights= self.path_to_model_weights,
+            force_cpu= self.device == 'cpu'
+        )
+
         ss_protein= SingleStateProtein(
             self.protein, 
             chains_sublist, 
@@ -769,108 +701,42 @@ class ProteinMPNNWrapper(object):
         ]:
             raise NotImplementedError()
         
-        score_exec_str= [f'--{scoring_mode}', '1']
-        # conditional_probs_only_backbone can only be activated if conditional_probs_only is also turned on
-        if scoring_mode == 'conditional_probs_only_backbone':
-            score_exec_str+=  ['--conditional_probs_only', '1']
-        
-        out_dir, file_loc_exec_str= ss_protein.dump_jsons()
-        # override the out folder setting when the wrapper was init.
-        file_loc_exec_str+= ['--out_folder', out_dir.name] 
-
         if scoring_mode == 'score_only' and candidates is not None:
+            out_dir= tempfile.TemporaryDirectory()
             input_seqs= ss_protein.candidates_to_full_seqs(candidates)
             input_seqs_f= f'{out_dir.name}/input_seqs.fa'
             with open(input_seqs_f, 'w') as f:
                 for seq_ind, seq in enumerate(input_seqs):
                     f.write(f'>des_seq_{seq_ind}\n{seq}\n')
-            score_exec_str+= ['--path_to_fasta', input_seqs_f]
+        else:
+            input_seqs_f= ''
 
-        exec_str= (
-            self.exec_str + \
-            file_loc_exec_str + \
-            score_exec_str + \
-            [
-                '--num_seq_per_target', str(num_seqs), 
-                '--batch_size', str(batch_size), 
-                '--seed', str(seed)
-            ]
+        t0= time.time()
+        outputs= pmpnn.score_protein(
+            model_info_dict= model_info_dict,
+            parsed_pdbs= ss_protein.parsed_pdb_json,
+            score_mode= scoring_mode,
+            path_to_fasta= input_seqs_f,
+            num_seq_per_target= num_seqs,
+            batch_size= batch_size,
+            chain_id_dict= ss_protein.parsed_fixed_chains,
+            fixed_positions_dict= ss_protein.parsed_fixed_positions,
+            tied_positions_dict= ss_protein.parsed_tied_positions
         )
-        if '--write_to_stdout' in exec_str: exec_str.remove('--write_to_stdout')
+        t1= time.time()
+                
+        logger.info(
+            f'ProteinMPNN (device: {self.device}) run time: {t1 - t0} s.'
+        )
 
-        with Device(self.device):
-            t0= time.time()
-            proc= subprocess.run(
-                exec_str, 
-                stdout= subprocess.PIPE, 
-                stderr= subprocess.PIPE, 
-                check= False
-            )
-            t1= time.time()
-            
-            logger.info(
-                f'ProteinMPNN (device: {self.device}) run time: {t1 - t0} s.'
-            )
-            if proc.stderr:
-                raise RuntimeError(
-                    textwrap.dedent(
-                        f'''\
-                        Command {proc.args} returned non-zero exist status {proc.returncode} with the stderr
-                        {sep}\n{proc.stderr.decode()}\n{sep}
-                        '''
-                    )
-                )
-            logger.debug(
-                textwrap.dedent(
-                    f'''\
-                    ProteinMPNN (device: {self.device}) was called with the command:
-                    {sep}\n{exec_str}\n{sep}
-                    stdout:
-                    \n{sep}\n{proc.stdout.decode()}\n{sep}
-                    stderr:
-                    {sep}\n{proc.stderr.decode()}\n{sep}
-                    '''
-                )
-            )
-
-        # the pdb file name will always be combined_pdb because of the pdb parsing/merging step
-        pdb_file_name= 'combined_pdb' 
         if scoring_mode == 'score_only':
             if candidates is None:
-                outputs= [
-                    npz_to_dict(
-                        np.load(
-                            f'{out_dir.name}/{scoring_mode}/{pdb_file_name}_pdb.npz'
-                        )
-                    )
-                ]
+                return outputs['pdb']
             else:
-                outputs= [
-                    npz_to_dict(
-                        np.load(
-                            f'{out_dir.name}/{scoring_mode}/{pdb_file_name}_fasta_{ind + 1}.npz'
-                        )
-                    ) 
-                    for ind in range(len(candidates))
-                ]
-        elif scoring_mode in [
-            'conditional_probs_only', 'conditional_probs_only_backbone'
-        ]:
-            outputs= [
-                npz_to_dict(
-                    np.load(f'{out_dir.name}/conditional_probs_only/{pdb_file_name}.npz')
-                )
-            ]
-        elif scoring_mode == 'unconditional_probs_only':
-            outputs= [
-                npz_to_dict(
-                    np.load(f'{out_dir.name}/{scoring_mode}/{pdb_file_name}.npz')
-                )
-            ]
-        
-        out_dir.cleanup()
-
-        return outputs
+                out_dir.cleanup()
+                return outputs['fasta']
+        else:
+            return outputs
         
 
 class ObjectiveProteinMPNNNegLogProb(object):
@@ -884,7 +750,6 @@ class ObjectiveProteinMPNNNegLogProb(object):
         pdb_file_name, 
         score_type, 
         model_weights_loc, 
-        protein_mpnn_run_loc= None, 
         num_seqs= 10, 
         device= 'cpu', 
         sign_flip= False, 
@@ -906,9 +771,6 @@ class ObjectiveProteinMPNNNegLogProb(object):
         model_weights_loc (str): path to the folder containing the desired ProteinMPNN
         weight parameter files.
 
-        protein_mpnn_run_loc (str, None): path to the 'protein_mpnn_run.py' file. By
-        default (None) set to None and the object will use the vendorized ProteinMPNN
-        script.
 
         num_seqs (int): how many times to score the sequences; default to 10; 
         equivalent to the 'num_seq_per_target' argument in ProteinMPNN.
@@ -923,11 +785,6 @@ class ObjectiveProteinMPNNNegLogProb(object):
         False by default.
         '''
         self.model_weights_loc= model_weights_loc
-        if protein_mpnn_run_loc is None:
-            self.protein_mpnn_run_loc= os.path.dirname(os.path.realpath(__file__)) + \
-                '/protein_mpnn_run.py'
-        else:
-            self.protein_mpnn_run_loc= protein_mpnn_run_loc
 
         self.pdb_file_name= pdb_file_name
         self.chain_ids= chain_ids
@@ -979,10 +836,7 @@ class ObjectiveProteinMPNNNegLogProb(object):
             protein= protein,
             temp= 0.1,
             model_weights_loc= self.model_weights_loc,
-            detect_degeneracy= False,
-            uniform_sampling= False,
-            device= self.device,
-            protein_mpnn_run_loc= self.protein_mpnn_run_loc
+            device= self.device
         )
         
         protein_mpnn_outputs= protein_mpnn_wrapper.score(

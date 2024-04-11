@@ -211,7 +211,7 @@ class MutationMethod(object):
         '''
         if self.choose_AA_method == 'random':
             return self._random_resetting(candidate, protein, proposed_des_pos_list)
-        elif self.choose_AA_method in ['ProteinMPNN-AD', 'ProteinMPNN-PD']:
+        elif self.choose_AA_method in ['ProteinMPNN-AD']:
             return self._protein_mpnn(
                 self.protein_mpnn, 
                 self.choose_AA_method, 

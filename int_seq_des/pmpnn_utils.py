@@ -1,3 +1,6 @@
+# This script is derived from protein_mpnn_utils.py; modifications were made
+# as to how RNG is controlled in some of the classes and functions
+
 from __future__ import print_function
 import json, time, os, sys, glob
 import shutil
@@ -762,7 +765,7 @@ class PositionalEncodings(nn.Module):
 
 class CA_ProteinFeatures(nn.Module):
     def __init__(self, edge_features, node_features, num_positional_embeddings=16,
-        num_rbf=16, top_k=30, augment_eps=0., num_chain_embeddings=16):
+        num_rbf=16, top_k=30, augment_eps=0., num_chain_embeddings=16, rng= None):
         """ Extract protein features """
         super(CA_ProteinFeatures, self).__init__()
         self.edge_features = edge_features
@@ -771,6 +774,7 @@ class CA_ProteinFeatures(nn.Module):
         self.augment_eps = augment_eps 
         self.num_rbf = num_rbf
         self.num_positional_embeddings = num_positional_embeddings
+        self.rng= rng
 
         # Positional encoding
         self.embeddings = PositionalEncodings(num_positional_embeddings)
@@ -894,7 +898,12 @@ class CA_ProteinFeatures(nn.Module):
     def forward(self, Ca, mask, residue_idx, chain_labels):
         """ Featurize coordinates as an attributed graph """
         if self.augment_eps > 0:
-            Ca = Ca + self.augment_eps * torch.randn_like(Ca)
+            # LH: control RNG
+            if self.rng is not None:
+                random_tensor = torch.empty_like(Ca).normal_(generator=self.rng)
+                Ca = Ca + self.augment_eps * random_tensor
+            else:
+                Ca = Ca + self.augment_eps * torch.randn_like(Ca)
 
         D_neighbors, E_idx, mask_neighbors = self._dist(Ca, mask)
 
@@ -943,7 +952,7 @@ class CA_ProteinFeatures(nn.Module):
 
 class ProteinFeatures(nn.Module):
     def __init__(self, edge_features, node_features, num_positional_embeddings=16,
-        num_rbf=16, top_k=30, augment_eps=0., num_chain_embeddings=16):
+        num_rbf=16, top_k=30, augment_eps=0., num_chain_embeddings=16, rng= None):
         """ Extract protein features """
         super(ProteinFeatures, self).__init__()
         self.edge_features = edge_features
@@ -952,6 +961,7 @@ class ProteinFeatures(nn.Module):
         self.augment_eps = augment_eps 
         self.num_rbf = num_rbf
         self.num_positional_embeddings = num_positional_embeddings
+        self.rng= None
 
         self.embeddings = PositionalEncodings(num_positional_embeddings)
         node_in, edge_in = 6, num_positional_embeddings + num_rbf*25
@@ -986,7 +996,12 @@ class ProteinFeatures(nn.Module):
 
     def forward(self, X, mask, residue_idx, chain_labels):
         if self.augment_eps > 0:
-            X = X + self.augment_eps * torch.randn_like(X)
+            # LH: control RNG
+            if self.rng is not None:
+                random_tensor = torch.empty_like(X).normal_(generator=self.rng)
+                X = X + self.augment_eps * random_tensor
+            else:
+                X = X + self.augment_eps * torch.randn_like(X)
         
         b = X[:,:,1,:] - X[:,:,0,:]
         c = X[:,:,2,:] - X[:,:,1,:]
@@ -1043,8 +1058,11 @@ class ProteinFeatures(nn.Module):
 class ProteinMPNN(nn.Module):
     def __init__(self, num_letters, node_features, edge_features,
         hidden_dim, num_encoder_layers=3, num_decoder_layers=3,
-        vocab=21, k_neighbors=64, augment_eps=0.05, dropout=0.1, ca_only=False):
+        vocab=21, k_neighbors=64, augment_eps=0.05, dropout=0.1, 
+        ca_only=False, rng= None):
         super(ProteinMPNN, self).__init__()
+
+        self.rng= rng
 
         # Hyperparameters
         self.node_features = node_features
@@ -1053,10 +1071,10 @@ class ProteinMPNN(nn.Module):
 
         # Featurization layers
         if ca_only:
-            self.features = CA_ProteinFeatures(node_features, edge_features, top_k=k_neighbors, augment_eps=augment_eps)
+            self.features = CA_ProteinFeatures(node_features, edge_features, top_k=k_neighbors, augment_eps=augment_eps, rng= self.rng)
             self.W_v = nn.Linear(node_features, hidden_dim, bias=True)
         else:
-            self.features = ProteinFeatures(node_features, edge_features, top_k=k_neighbors, augment_eps=augment_eps)
+            self.features = ProteinFeatures(node_features, edge_features, top_k=k_neighbors, augment_eps=augment_eps, rng= self.rng)
 
         self.W_e = nn.Linear(edge_features, hidden_dim, bias=True)
         self.W_s = nn.Embedding(vocab, hidden_dim)
@@ -1125,7 +1143,7 @@ class ProteinMPNN(nn.Module):
 
 
 
-    def sample(self, X, randn, S_true, chain_mask, chain_encoding_all, residue_idx, mask=None, temperature=1.0, omit_AAs_np=None, bias_AAs_np=None, chain_M_pos=None, omit_AA_mask=None, pssm_coef=None, pssm_bias=None, pssm_multi=None, pssm_log_odds_flag=None, pssm_log_odds_mask=None, pssm_bias_flag=None, bias_by_res=None):
+    def sample(self, X, randn, S_true, chain_mask, chain_encoding_all, residue_idx, mask=None, temperature=1.0, omit_AAs_np=None, bias_AAs_np=None, chain_M_pos=None, omit_AA_mask=None, pssm_coef=None, pssm_bias=None, pssm_multi=None, pssm_log_odds_flag=None, pssm_log_odds_mask=None, pssm_bias_flag=None, bias_by_res=None, rng= None):
         device = X.device
         # Prepare node and edge embeddings
         E, E_idx = self.features(X, mask, residue_idx, chain_encoding_all)
@@ -1201,7 +1219,7 @@ class ProteinMPNN(nn.Module):
                     omit_AA_mask_gathered = torch.gather(omit_AA_mask, 1, t[:,None, None].repeat(1,1,omit_AA_mask.shape[-1]))[:,0] #[B, 21]
                     probs_masked = probs*(1.0-omit_AA_mask_gathered)
                     probs = probs_masked/torch.sum(probs_masked, dim=-1, keepdim=True) #[B, 21]
-                S_t = torch.multinomial(probs, 1)
+                S_t = torch.multinomial(probs, 1, generator= rng)
                 all_probs.scatter_(1, t[:,None,None].repeat(1,1,21), (chain_mask_gathered[:,:,None,]*probs[:,None,:]).float())
             S_true_gathered = torch.gather(S_true, 1, t[:,None])
             S_t = (S_t*chain_mask_gathered+S_true_gathered*(1.0-chain_mask_gathered)).long()
@@ -1212,7 +1230,7 @@ class ProteinMPNN(nn.Module):
         return output_dict
 
 
-    def tied_sample(self, X, randn, S_true, chain_mask, chain_encoding_all, residue_idx, mask=None, temperature=1.0, omit_AAs_np=None, bias_AAs_np=None, chain_M_pos=None, omit_AA_mask=None, pssm_coef=None, pssm_bias=None, pssm_multi=None, pssm_log_odds_flag=None, pssm_log_odds_mask=None, pssm_bias_flag=None, tied_pos=None, tied_beta=None, bias_by_res=None):
+    def tied_sample(self, X, randn, S_true, chain_mask, chain_encoding_all, residue_idx, mask=None, temperature=1.0, omit_AAs_np=None, bias_AAs_np=None, chain_M_pos=None, omit_AA_mask=None, pssm_coef=None, pssm_bias=None, pssm_multi=None, pssm_log_odds_flag=None, pssm_log_odds_mask=None, pssm_bias_flag=None, tied_pos=None, tied_beta=None, bias_by_res=None, rng= None):
         device = X.device
         # Prepare node and edge embeddings
         E, E_idx = self.features(X, mask, residue_idx, chain_encoding_all)
@@ -1303,7 +1321,7 @@ class ProteinMPNN(nn.Module):
                     omit_AA_mask_gathered = omit_AA_mask[:,t]
                     probs_masked = probs*(1.0-omit_AA_mask_gathered)
                     probs = probs_masked/torch.sum(probs_masked, dim=-1, keepdim=True) #[B, 21]
-                S_t_repeat = torch.multinomial(probs, 1).squeeze(-1)
+                S_t_repeat = torch.multinomial(probs, 1, generator= rng).squeeze(-1)
                 S_t_repeat = (chain_mask[:,t]*S_t_repeat + (1-chain_mask[:,t])*S_true[:,t]).long() #hard pick fixed positions
                 for t in t_list:
                     h_S[:,t,:] = self.W_s(S_t_repeat)
@@ -1314,7 +1332,7 @@ class ProteinMPNN(nn.Module):
 
 
     # L.H.
-    def tied_pareto_sample(self, X, randn, S_true, chain_mask, chain_encoding_all, residue_idx, mask=None, temperature=1.0, omit_AAs_np=None, bias_AAs_np=None, chain_M_pos=None, omit_AA_mask=None, pssm_coef=None, pssm_bias=None, pssm_multi=None, pssm_log_odds_flag=None, pssm_log_odds_mask=None, pssm_bias_flag=None, tied_pos=None, tied_beta=None, bias_by_res=None, detect_degeneracy= False, corr_cutoff= 0.9, geometric_prob= 1.0, uniform_sampling= False):
+    def tied_pareto_sample(self, X, randn, S_true, chain_mask, chain_encoding_all, residue_idx, mask=None, temperature=1.0, omit_AAs_np=None, bias_AAs_np=None, chain_M_pos=None, omit_AA_mask=None, pssm_coef=None, pssm_bias=None, pssm_multi=None, pssm_log_odds_flag=None, pssm_log_odds_mask=None, pssm_bias_flag=None, tied_pos=None, tied_beta=None, bias_by_res=None, detect_degeneracy= False, corr_cutoff= 0.9, geometric_prob= 1.0, uniform_sampling= False, rng= None):
         device = X.device
         # Prepare node and edge embeddings
         E, E_idx = self.features(X, mask, residue_idx, chain_encoding_all)
@@ -1430,7 +1448,7 @@ class ProteinMPNN(nn.Module):
                 
                 if probs.size(1) == 1:
                     # if no tied positions then sample from ave_probs
-                    S_t_repeat = torch.multinomial(ave_probs, 1).squeeze(-1)
+                    S_t_repeat = torch.multinomial(ave_probs, 1, generator= rng).squeeze(-1)
                 else:
                     for sample in range(N_batch):
                         # first check for degeneracy
@@ -1451,7 +1469,7 @@ class ProteinMPNN(nn.Module):
                         
                         if reduced_probs.size(0) == 1:
                             # if no tied positions then sample from ave_probs
-                            S_t_repeat = torch.multinomial(ave_probs, 1).squeeze(-1)
+                            S_t_repeat = torch.multinomial(ave_probs, 1, generator= rng).squeeze(-1)
                         else:
                             geometric= torch.distributions.geometric.Geometric(geometric_prob)
                             ave_probs_pareto_masked= ave_probs.clone()
@@ -1469,7 +1487,7 @@ class ProteinMPNN(nn.Module):
                             ave_probs_pareto_masked[sample][~pareto_mask]= 0.
                             if uniform_sampling:
                                 ave_probs_pareto_masked[sample][pareto_mask]= 1.
-                            S_t_repeat = torch.multinomial(ave_probs_pareto_masked, 1).squeeze(-1)
+                            S_t_repeat = torch.multinomial(ave_probs_pareto_masked, 1, generator= rng).squeeze(-1)
                     
                 S_t_repeat = (chain_mask[:,t]*S_t_repeat + (1-chain_mask[:,t])*S_true[:,t]).long() #hard pick fixed positions
                 for t in t_list:
