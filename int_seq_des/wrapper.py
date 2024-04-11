@@ -484,7 +484,7 @@ class ProteinMPNNWrapper(object):
 
         Output
         -----
-        seq_list (list[str]): a list of designed sequences as strings.
+        des_seq_list (list[str]): a list of designed sequences as strings.
 
         chains_to_design (np.ndarray[str]): an array containing the chains that
         are redesigned; i.e., the chains must contain residues listed in the
