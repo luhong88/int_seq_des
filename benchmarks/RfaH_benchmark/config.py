@@ -7,7 +7,6 @@ device= 'cpu'
 # specify absolute paths; update according to local setups
 tmscore_exec= '/wynton/home/kortemme/lhong/software/TMscore/TMscore'
 af2_params_dir= '/wynton/home/kortemme/lhong/software/af2rank/params'
-esm_script= '/wynton/home/kortemme/lhong/protein_gibbs_sampler/src/pgen/likelihood_esm.py'
 protein_mpnn_helper_scripts_dir= '/wynton/home/kortemme/lhong/ProteinMPNN-main/helper_scripts'
 protein_mpnn_weights_dir= '/wynton/home/kortemme/lhong/ProteinMPNN-main/vanilla_model_weights'
 pdb_files_dir= f'{os.getcwd()}/pdb_files'
@@ -104,7 +103,6 @@ def protein_mpnn_chainB(use_surrogate_tied_residues= False):
 def esm_1v(design_chain= 'A'):
     return ObjectiveESM(
         chain_id= design_chain,
-        script_loc= esm_script,
         model_name= 'esm1v',
         device= 'cpu',
         sign_flip= True,

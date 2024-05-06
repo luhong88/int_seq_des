@@ -125,8 +125,7 @@ mutation_method= MutationMethod(
     choose_AA_method= batch_settings_dict[batch_ind]['choose_AA_method'],
     prob= 1.0,
     mutation_rate= batch_settings_dict[batch_ind]['mutation_rate'],
-    protein_mpnn= protein_mpnn, 
-    esm_script_loc= config.esm_script
+    protein_mpnn= protein_mpnn
 )
 
 mutation_operator= ProteinMutation(
