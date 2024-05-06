@@ -1,13 +1,12 @@
-import textwrap, os, io, sys, subprocess, tempfile, time, importlib
+import textwrap, tempfile, time
 
-import numpy as np, pandas as pd
-from Bio import SeqIO
+import numpy as np
 
 from int_seq_des.protein import (
     DesignedProtein, SingleStateProtein, Residue, TiedResidue
 )
 from int_seq_des.utils import (
-    sort_order, npz_to_dict, get_logger, sep, Device
+    sort_order, get_logger, sep, Device
 )
 from int_seq_des import pmpnn
 

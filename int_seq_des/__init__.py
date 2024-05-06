@@ -166,27 +166,27 @@ def run_single_pass(
             pickle.dump(outputs_df, open(out_file_name + '.p', 'wb'))
 
 def run_nsga(
-        protein,
-        pop_size, 
-        n_generation,
-        mutation_operator, 
-        crossover_operator, 
-        metrics_list,
-        root_seed, 
-        out_file_name, 
-        saving_method,
-        observer_metrics_list= None,
-        nsga_version= 2,
-        comm= None, 
-        cluster_parallelization= False, 
-        cluster_parallelize_metrics= False,
-        cluster_time_limit_str= None, 
-        cluster_mem_free_str= None,
-        temp_dir= None,
-        restart= False, 
-        init_pop_file= None, 
-        init_mutation_rate= 0.1
-    ):
+    protein,
+    pop_size, 
+    n_generation,
+    mutation_operator, 
+    crossover_operator, 
+    metrics_list,
+    root_seed, 
+    out_file_name, 
+    saving_method,
+    observer_metrics_list= None,
+    nsga_version= 2,
+    comm= None, 
+    cluster_parallelization= False, 
+    cluster_parallelize_metrics= False,
+    cluster_time_limit_str= None, 
+    cluster_mem_free_str= None,
+    temp_dir= None,
+    restart= False, 
+    init_pop_file= None, 
+    init_mutation_rate= 0.1
+):
     '''
     Perform sequence design using either NSGA-II or NSGA-II.
 
