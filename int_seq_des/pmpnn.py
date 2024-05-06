@@ -1,3 +1,8 @@
+# This script is derived from protein_mpnn_run.py; the original script has been
+# extensively refactored to 1) remove the commandline interface of the original
+# script, and 2) separate out sequence design and sequence scoring into two
+# different functions.
+
 import os, os.path, copy, json
 from typing import Literal
 
