@@ -5,6 +5,7 @@ import numpy as np
 from int_seq_des.utils import (
     sort_order, argsort, get_logger, sep, alphabet, merge_pdb_files
 )
+from int_seq_des.pmpnn import read_parsed_pdbs
 
 logger= get_logger(__name__)
 
@@ -607,10 +608,7 @@ class Protein(object):
 
         Output
         -----
-        parsed_pdbs_dict (dict): a dictionary object with two keys: 'json', which
-        corresponds to the dict of PDB parsing results, and 'exec_str', which
-        corresponds to the ProteinMPNN flag to which the parsing results should
-        be passed.
+        structure_dataset (pmpnn_utils.StructureDataset): PDB parsing results.
 
         out (tempfile.NamedTemporaryFile): a temporary file object containing
         the PDB parsing results. Note that the file handle is closed in __init__().
@@ -719,7 +717,10 @@ class Protein(object):
             json.dump(parsed_pdb_json, f)
             f.seek(0)
 
-        return {'json': parsed_pdb_json, 'exec_str': 'jsonl_path'}, out
+        # load the parsed PDBs as a StructureDataset object for pMPNN
+        structure_dataset= read_parsed_pdbs(out.name)
+
+        return structure_dataset, out
     
     def parse_fixed_chains(self, parsed_pdb_handle):
         '''
@@ -733,14 +734,12 @@ class Protein(object):
         Output
         -----
         If every chain in the parsed PDB file is designable, then returns None.
-        Otherwise returns a dictionary object with two keys: 'json', which
-        corresponds to the dict of fixed chains parsing results, and 'exec_str', 
-        which corresponds to the ProteinMPNN flag to which the parsing results
-        should be passed.
+        Otherwise returns the dict of fixed chains parsing results.
         '''
         chains_to_design= self.design_seq.chains_to_design
         
-        if self.parsed_pdb_json['json']['num_of_chains'] > len(chains_to_design):
+        # [0] because we assume that only one pdb got parsed
+        if self.parsed_pdb_json[0]['num_of_chains'] > len(chains_to_design):
             chains_to_design_str= ' '.join(chains_to_design)
             out= tempfile.NamedTemporaryFile()
             exec_str= [
@@ -781,7 +780,7 @@ class Protein(object):
                 parsed_fixed_chains= json.load(f)
             out.close()
 
-            return {'json': parsed_fixed_chains, 'exec_str': 'chain_id_jsonl'}
+            return parsed_fixed_chains
         else:
             return None
         
@@ -797,10 +796,7 @@ class Protein(object):
         Output
         -----
         If every residue in the designable chains is designable, then returns None.
-        Otherwise returns a dictionary object with two keys: 'json', which
-        corresponds to the dict of fixed positions parsing results, and 'exec_str', 
-        which corresponds to the ProteinMPNN flag to which the parsing results
-        should be passed.
+        Otherwise returns the dict of fixed positions parsing results.
         '''
         fixed_pos_str= []
         chains_str= []
@@ -866,10 +862,7 @@ class Protein(object):
                 parsed_fixed_positions= json.load(f)
             out.close()
 
-            return {
-                'json': parsed_fixed_positions,
-                'exec_str': 'fixed_positions_jsonl'
-            }
+            return parsed_fixed_positions
     
     def parse_tied_positions(self):
         '''
@@ -877,10 +870,8 @@ class Protein(object):
 
         Output
         -----
-        If no designable position is tied, then returns None. Otherwise returns a 
-        dictionary object with two keys: 'json', which corresponds to the dict of
-        tied positions parsing results, and 'exec_str', which corresponds to the
-        ProteinMPNN flag to which the parsing results should be passed.
+        If no designable position is tied, then returns None. Otherwise returns 
+        the dict of tied positions parsing results.
         '''
         if self.design_seq.has_no_tied_residues:
             return None
@@ -917,10 +908,7 @@ class Protein(object):
             )
             parsed_tied_positions= json.loads(combined_tied_list)
 
-            return {
-                'json': parsed_tied_positions, 
-                'exec_str': 'tied_positions_jsonl'
-            }
+            return parsed_tied_positions
     
     def parse_omit_AA(self):
         raise NotImplementedError()
@@ -939,8 +927,8 @@ class Protein(object):
         here, L is the number of residues in target chain.
         '''
         CA_coords= np.asarray(
-            self.parsed_pdb_json['json'][f'coords_chain_{chain_id}'][f'CA_chain_{chain_id}']
-        )
+            self.parsed_pdb_json[0][f'coords_chain_{chain_id}'][f'CA_chain_{chain_id}']
+        ) # [0] because we assume there's only one pdb that got parsed
         logger.debug(
             textwrap.dedent(
                 f'''\
@@ -954,44 +942,44 @@ class Protein(object):
         )
         return CA_coords
 
-    def dump_jsons(self):
-        '''
-        Write the parsing results from parse_pdbs(), parse_fixed_chains(),
-        parse_fixed_positions(), and parse_tied_positions() to json files.
+    # def dump_jsons(self):
+    #     '''
+    #     Write the parsing results from parse_pdbs(), parse_fixed_chains(),
+    #     parse_fixed_positions(), and parse_tied_positions() to json files.
 
-        Output
-        -----
-        out_dir (tempfile.TemporaryDirectory): a temporary directory object, to
-        which all json files are written.
+    #     Output
+    #     -----
+    #     out_dir (tempfile.TemporaryDirectory): a temporary directory object, to
+    #     which all json files are written.
 
-        exec_str (list[str]): a list of commandline arguments that enable
-        ProteinMPNN to read in the parsed json files.
-        '''
-        out_dir= tempfile.TemporaryDirectory()
-        outputs= [
-            self.parsed_pdb_json,
-            self.parsed_fixed_chains,
-            self.parsed_fixed_positions,
-            self.parsed_tied_positions,
-        ]
-        exec_str= []
+    #     exec_str (list[str]): a list of commandline arguments that enable
+    #     ProteinMPNN to read in the parsed json files.
+    #     '''
+    #     out_dir= tempfile.TemporaryDirectory()
+    #     outputs= [
+    #         self.parsed_pdb_json,
+    #         self.parsed_fixed_chains,
+    #         self.parsed_fixed_positions,
+    #         self.parsed_tied_positions,
+    #     ]
+    #     exec_str= []
 
-        for output in outputs:
-            if output is not None:
-                output_loc= f'{out_dir.name}/{output["exec_str"]}.json'
-                with open(output_loc, 'w') as f:
-                    json.dump(output['json'], f)
-                    exec_str+= ['--' + output['exec_str'], output_loc]
+    #     for output in outputs:
+    #         if output is not None:
+    #             output_loc= f'{out_dir.name}/{output["exec_str"]}.json'
+    #             with open(output_loc, 'w') as f:
+    #                 json.dump(output['json'], f)
+    #                 exec_str+= ['--' + output['exec_str'], output_loc]
         
-        logger.debug(
-            textwrap.dedent(
-                f'''\
-                dump_jsons() returned the following exec_str:
-                {sep}\n{exec_str}\n{sep}
-                '''
-            )
-        )
-        return out_dir, exec_str
+    #     logger.debug(
+    #         textwrap.dedent(
+    #             f'''\
+    #             dump_jsons() returned the following exec_str:
+    #             {sep}\n{exec_str}\n{sep}
+    #             '''
+    #         )
+    #     )
+    #     return out_dir, exec_str
 
 class DesignedProtein(Protein):
     '''
@@ -1133,7 +1121,8 @@ class SingleStateProtein(Protein):
 
         parsed_pdb_handle.close()
 
-        if len(chains_sublist) != self.parsed_pdb_json['json']['num_of_chains']:
+        # [0] because we assume that only one pdb got parsed
+        if len(chains_sublist) != self.parsed_pdb_json[0]['num_of_chains']:
             raise ValueError(
                 f'The number of chains found in the input pdb file ({pdb_file_name}) ' + \
                 f'does not match the number of chains provided in the chains_sublist ({chains_sublist})'

@@ -84,7 +84,7 @@ def run_single_pass(
         rank= None
 
         t0= time.time()
-        design_fa, chains_to_design= protein_mpnn.design(
+        des_seq_list, chains_to_design= protein_mpnn.design(
             method= design_mode,
             base_candidate= base_candidate,
             proposed_des_pos_list= np.arange(protein.design_seq.n_des_res),
@@ -97,14 +97,14 @@ def run_single_pass(
 
         if score_wt_only:
             design_candidates= [base_candidate]
-            outputs['seq']= [str(design_fa[0].seq)]
+            outputs['seq']= [des_seq_list[0]]
         else:
             design_candidates= protein_mpnn.design_seqs_to_candidates(
-                design_fa, 
+                des_seq_list, 
                 chains_to_design, 
                 base_candidate
             )
-            outputs['seq']= [str(fa.seq) for fa in design_fa[1:]]
+            outputs['seq']= des_seq_list[1:]
 
         outputs['candidate']= [''.join(candidate) for candidate in design_candidates]
 
@@ -133,7 +133,7 @@ def run_single_pass(
         batch_size= min(protein_mpnn_batch_size, chunk_size)
 
         t0= time.time()
-        design_fa, chains_to_design= protein_mpnn.design(
+        des_seq_list, chains_to_design= protein_mpnn.design(
             method= 'ProteinMPNN-PD',
             base_candidate= base_candidate,
             proposed_des_pos_list= np.arange(protein.design_seq.n_des_res),
@@ -145,11 +145,11 @@ def run_single_pass(
         logger.info(f'ProteinMPNN (rank {rank}) total run time: {t1 - t0} s.')
 
         design_candidates= protein_mpnn.design_seqs_to_candidates(
-            design_fa, 
+            des_seq_list, 
             chains_to_design, 
             base_candidate
         )
-        outputs['seq']= [str(fa.seq) for fa in design_fa[1:]]
+        outputs['seq']= des_seq_list[1:]
         outputs['candidate']= [''.join(candidate) for candidate in design_candidates]
 
         for metric in metrics_list:

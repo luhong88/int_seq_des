@@ -49,9 +49,9 @@ class MutationMethod(object):
         mutation_rate, 
         sigma= None,
         protein_mpnn= None,
-        esm_script_loc= None, 
         esm_model= None, 
-        esm_device= None
+        esm_device= None,
+        esm_sampler_dict= None
     ):
         '''
         Input
@@ -89,15 +89,17 @@ class MutationMethod(object):
         protein_mpnn (wrapper.ProteinMPNNWrapper, None): a ProteinMPNN wrapper object.
         Cannot be None if 'choose_AA_method' invokes ProteinMPNN.
 
-        esm_script_loc (str, None): path to the 'likelihood_esm.py' file in the 
-        pgen package. If None, will attempt to search for the module.
-
         esm_model (str, None): name of an ESM model. See wrapper.ObjectiveESM for
         more details. If None, use 'esm1v'.
         
         esm_device (str, None): where to perform ESM calculations. Set to 'cpu' to 
         force calculations on the CPUs, otherwise the argument has no effect. If
         None, use 'cpu'.
+
+        esm_sampler_dict (dict[str, pgen.esm_sampler.ESM_sampler]): a dictionary
+        where the keys are ESM model names and the values are the ESM_sampler objects.
+        If this is provided, then apply() will no longer initializing new models
+        each time it is called.
         '''
         self.choose_pos_method= choose_pos_method
         self.choose_AA_method= choose_AA_method
@@ -105,9 +107,9 @@ class MutationMethod(object):
         self.mutation_rate= mutation_rate
         self.sigma= sigma
         self.protein_mpnn= protein_mpnn
-        self.esm_script_loc= esm_script_loc
         self.esm_model= esm_model
         self.esm_device= esm_device
+        self.esm_sampler_dict= esm_sampler_dict
 
         self.name= f'{choose_pos_method}+{choose_AA_method}_{prob}'
 
@@ -161,10 +163,10 @@ class MutationMethod(object):
             return self._esm_then_cutoff(
                 ObjectiveESM(
                     chain_id= self._random_chain_picker(protein),
-                    script_loc= self.esm_script_loc,
                     model_name= self.esm_model if self.esm_model is not None else 'esm1v',
                     device= self.esm_device if self.esm_device is not None else 'cpu',
-                    sign_flip= False
+                    sign_flip= False,
+                    esm_sampler_dict= self.esm_sampler_dict
                 ),
                 candidate,
                 protein,
@@ -175,10 +177,10 @@ class MutationMethod(object):
             return self._esm_then_spatial(
                 ObjectiveESM(
                     chain_id= self._random_chain_picker(protein),
-                    script_loc= self.esm_script_loc,
                     model_name= self.esm_model if self.esm_model is not None else 'esm1v',
                     device= self.esm_device if self.esm_device is not None else 'cpu',
-                    sign_flip= False
+                    sign_flip= False,
+                    esm_sampler_dict= self.esm_sampler_dict
                 ),
                 candidate,
                 protein,
@@ -209,7 +211,7 @@ class MutationMethod(object):
         '''
         if self.choose_AA_method == 'random':
             return self._random_resetting(candidate, protein, proposed_des_pos_list)
-        elif self.choose_AA_method in ['ProteinMPNN-AD', 'ProteinMPNN-PD']:
+        elif self.choose_AA_method in ['ProteinMPNN-AD']:
             return self._protein_mpnn(
                 self.protein_mpnn, 
                 self.choose_AA_method, 
