@@ -10,7 +10,7 @@ This package provides a demonstration of how evolutionary multiobjective optimiz
 
 ### Getting started with the repo
 
-Clone the repo and `pip install .` from the repo root directory to install the package. Take a look at the RfaH benchmark code in [`RfaH_benchmark/`](benchmarks/RfaH_benchmark/RfaH_benchmark/) and the docstrings in [`__init__.py`](int_seq_des/__init__.py), which provides the primary user interface for setting up a simulation.
+Clone the repo and `pip install .` from the repo root directory to install the package. Take a look at the RfaH benchmark code in [`RfaH_benchmark/`](benchmarks/RfaH_benchmark/) and the docstrings in [`__init__.py`](int_seq_des/__init__.py), which provides the primary user interface for setting up a simulation.
 
 ## Installation
 
