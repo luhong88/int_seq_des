@@ -1,4 +1,4 @@
-This folder contains the code to reproduce and analyze the CaM multistate design benchmark results, as well as the source data to reproduce all RfaH analysis figures in the paper.
+This folder contains the code to reproduce and analyze the CaM multistate design benchmark results, as well as the source data to reproduce all CaM analysis figures in the paper.
 
 # Simulation code
 
