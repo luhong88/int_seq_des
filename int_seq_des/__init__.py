@@ -188,7 +188,7 @@ def run_nsga(
     init_mutation_rate= 0.1
 ):
     '''
-    Perform sequence design using either NSGA-II or NSGA-II.
+    Perform sequence design using either NSGA-II or NSGA-III.
 
     Input
     -----
