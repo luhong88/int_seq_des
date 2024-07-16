@@ -1,6 +1,6 @@
 # Integrative protein sequence design with evolutionary multiobjective optimization
 
-Code and benchmark data associated with the preprint "[An integrative approach to protein sequence design through multiobjective optimization](https://www.biorxiv.org/content/10.1101/2024.03.01.582670v1)".
+Code and benchmark data associated with the paper "[An integrative approach to protein sequence design through multiobjective optimization](https://doi.org/10.1371/journal.pcbi.1011953)".
 
 ## TL;DR
 
